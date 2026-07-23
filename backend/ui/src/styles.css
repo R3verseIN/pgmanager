@@ -1,0 +1,7 @@
+body {
+  margin: 0;
+}
+
+.row-odd {
+  background: rgba(255, 255, 255, 0.02);
+}
