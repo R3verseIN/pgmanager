@@ -10,29 +10,42 @@ import {
   Select,
   Tooltip,
   Typography,
+  Tag,
 } from "antd";
 import {
   PlusOutlined,
   DeleteOutlined,
   ReloadOutlined,
   CopyOutlined,
+  EditOutlined,
 } from "@ant-design/icons";
 import {
   fetchUsers,
   fetchDatabases,
   createUser,
   deleteUser,
+  updateUser,
+  addUserDatabase,
+  removeUserDatabase,
 } from "../api/client";
-import { CreateUserRequestSchema } from "../lib/schemas";
+import { CreateUserRequestSchema, UpdateUserRequestSchema, AddDatabaseRequestSchema } from "../lib/schemas";
 import type { User } from "../lib/schemas";
 
 export default function Users() {
   const [createOpen, setCreateOpen] = useState(false);
-  const [formDb, setFormDb] = useState("");
+  const [formDbs, setFormDbs] = useState<string[]>([]);
   const [formUsername, setFormUsername] = useState("");
   const [formAccess, setFormAccess] = useState<"read" | "write" | "ddl" | "full">("write");
   const [formError, setFormError] = useState<string | null>(null);
-  const [showCreds, setShowCreds] = useState<{ username: string; password: string; database: string } | null>(null);
+  const [showCreds, setShowCreds] = useState<{ username: string; password: string; databases: string[]; connectionString: string } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<User | null>(null);
+  const [editAccess, setEditAccess] = useState<"read" | "write" | "ddl" | "full">("write");
+  const [editPassword, setEditPassword] = useState("");
+  const [addDbOpen, setAddDbOpen] = useState(false);
+  const [addDbTarget, setAddDbTarget] = useState<User | null>(null);
+  const [addDbName, setAddDbName] = useState("");
+  const [addDbError, setAddDbError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
   const { message } = App.useApp();
@@ -48,13 +61,13 @@ export default function Users() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (vars: { username: string; database: string; access: "read" | "write" | "ddl" | "full" }) =>
-      createUser(vars.username, vars.database, vars.access),
+    mutationFn: (vars: { username: string; databases: string[]; access: "read" | "write" | "ddl" | "full"; password?: string }) =>
+      createUser(vars.username, vars.databases, vars.access, vars.password),
     onSuccess: (data) => {
       message.success("user created successfully");
       setCreateOpen(false);
       resetForm();
-      setShowCreds({ username: data.username, password: data.password, database: data.database });
+      setShowCreds({ username: data.username, password: data.password, databases: data.databases, connectionString: data.connectionString });
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (error: Error) => {
@@ -73,8 +86,55 @@ export default function Users() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: (vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full" }) => {
+      const opts: { password?: string; access?: "read" | "write" | "ddl" | "full" } = {};
+      if (vars.password !== undefined) opts.password = vars.password;
+      if (vars.access !== undefined) opts.access = vars.access;
+      return updateUser(vars.username, opts);
+    },
+    onSuccess: () => {
+      message.success("user updated");
+      setEditOpen(false);
+      setEditTarget(null);
+      setEditPassword("");
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (error: Error) => {
+      message.error(error.message);
+    },
+  });
+
+  const addDbMutation = useMutation({
+    mutationFn: (vars: { username: string; database: string }) =>
+      addUserDatabase(vars.username, vars.database),
+    onSuccess: () => {
+      message.success("database granted");
+      setAddDbOpen(false);
+      setAddDbTarget(null);
+      setAddDbName("");
+      setAddDbError(null);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (error: Error) => {
+      message.error(error.message);
+    },
+  });
+
+  const removeDbMutation = useMutation({
+    mutationFn: (vars: { username: string; database: string }) =>
+      removeUserDatabase(vars.username, vars.database),
+    onSuccess: () => {
+      message.success("database removed");
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (error: Error) => {
+      message.error(error.message);
+    },
+  });
+
   function resetForm() {
-    setFormDb("");
+    setFormDbs([]);
     setFormUsername("");
     setFormAccess("write");
     setFormError(null);
@@ -82,7 +142,7 @@ export default function Users() {
 
   function handleCreate() {
     const result = CreateUserRequestSchema.safeParse({
-      database: formDb,
+      databases: formDbs,
       username: formUsername,
       access: formAccess,
     });
@@ -92,11 +152,13 @@ export default function Users() {
       return;
     }
     setFormError(null);
-    createMutation.mutate({
+    const vars: { username: string; databases: string[]; access: "read" | "write" | "ddl" | "full"; password?: string } = {
       username: result.data.username,
-      database: result.data.database,
+      databases: result.data.databases,
       access: result.data.access,
-    });
+    };
+    if (result.data.password) vars.password = result.data.password;
+    createMutation.mutate(vars);
   }
 
   function handleDelete(username: string) {
@@ -106,6 +168,57 @@ export default function Users() {
       okText: "Delete",
       okType: "danger",
       onOk: () => deleteMutation.mutate(username),
+    });
+  }
+
+  function openEdit(user: User) {
+    setEditTarget(user);
+    setEditAccess(user.access);
+    setEditPassword("");
+    setEditOpen(true);
+  }
+
+  function handleEdit() {
+    if (!editTarget) return;
+    const result = UpdateUserRequestSchema.safeParse({
+      password: editPassword || undefined,
+      access: editAccess,
+    });
+    if (!result.success) {
+      message.error(result.error.errors[0]?.message ?? "invalid input");
+      return;
+    }
+    const vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full" } = { username: editTarget.username };
+    if (result.data.password) vars.password = result.data.password;
+    if (result.data.access) vars.access = result.data.access;
+    updateMutation.mutate(vars);
+  }
+
+  function openAddDb(user: User) {
+    setAddDbTarget(user);
+    setAddDbName("");
+    setAddDbError(null);
+    setAddDbOpen(true);
+  }
+
+  function handleAddDb() {
+    if (!addDbTarget) return;
+    const result = AddDatabaseRequestSchema.safeParse({ database: addDbName });
+    if (!result.success) {
+      setAddDbError(result.error.errors[0]?.message ?? "invalid input");
+      return;
+    }
+    setAddDbError(null);
+    addDbMutation.mutate({ username: addDbTarget.username, database: result.data.database });
+  }
+
+  function handleRemoveDb(username: string, database: string) {
+    Modal.confirm({
+      title: "Remove database access",
+      content: `Remove access to "${database}" from "${username}"?`,
+      okText: "Remove",
+      okType: "danger",
+      onOk: () => removeDbMutation.mutate({ username, database }),
     });
   }
 
@@ -136,9 +249,29 @@ export default function Users() {
       key: "username",
     },
     {
-      title: "Database",
-      dataIndex: "database",
-      key: "database",
+      title: "Databases",
+      dataIndex: "databases",
+      key: "databases",
+      render: (dbs: string[], record: User): ReactNode => (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {dbs.map((db) => (
+            <Tag
+              key={db}
+              closable
+              onClose={(e) => { e.preventDefault(); handleRemoveDb(record.username, db); }}
+              style={{ margin: 0 }}
+            >
+              {db}
+            </Tag>
+          ))}
+          <Tag
+            style={{ borderStyle: "dashed", cursor: "pointer", margin: 0 }}
+            onClick={() => openAddDb(record)}
+          >
+            <PlusOutlined /> add
+          </Tag>
+        </div>
+      ),
     },
     {
       title: "Access",
@@ -159,14 +292,21 @@ export default function Users() {
     {
       title: "",
       key: "actions",
-      width: 48,
+      width: 80,
       render: (_: unknown, record: User): ReactNode => (
-        <Button
-          type="text"
-          danger
-          icon={<DeleteOutlined />}
-          onClick={() => handleDelete(record.username)}
-        />
+        <div style={{ display: "flex", gap: 4 }}>
+          <Button
+            type="text"
+            icon={<EditOutlined />}
+            onClick={() => openEdit(record)}
+          />
+          <Button
+            type="text"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDelete(record.username)}
+          />
+        </div>
       ),
     },
   ];
@@ -205,26 +345,21 @@ export default function Users() {
         title="Create Database User"
         open={createOpen}
         onOk={handleCreate}
-        onCancel={() => {
-          setCreateOpen(false);
-          resetForm();
-        }}
+        onCancel={() => { setCreateOpen(false); resetForm(); }}
         confirmLoading={createMutation.isPending}
       >
         <div style={{ marginTop: 8 }}>
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: "block", marginBottom: 4, fontSize: 13, color: "#ccc" }}>
-              Database
+              Databases
             </label>
             <Select
-              placeholder="select database"
-              value={formDb || undefined}
-              onChange={(v) => { setFormDb(v ?? ""); setFormError(null); }}
+              mode="multiple"
+              placeholder="select databases"
+              value={formDbs}
+              onChange={(v) => { setFormDbs(v); setFormError(null); }}
               style={{ width: "100%" }}
-              options={(databases ?? []).map((d) => ({
-                value: d.name,
-                label: d.name,
-              }))}
+              options={(databases ?? []).map((d) => ({ value: d.name, label: d.name }))}
             />
           </div>
           <div style={{ marginBottom: 16 }}>
@@ -250,21 +385,15 @@ export default function Users() {
               {(["read", "write", "ddl", "full"] as const).map((level) => (
                 <Radio key={level} value={level}>
                   <Tooltip title={accessLabels[level]}>
-                    <span style={{ textTransform: "uppercase", fontWeight: 600 }}>
-                      {level}
-                    </span>
-                    <span style={{ marginLeft: 8, fontSize: 12, color: "#888" }}>
-                      — {accessLabels[level]}
-                    </span>
+                    <span style={{ textTransform: "uppercase", fontWeight: 600 }}>{level}</span>
+                    <span style={{ marginLeft: 8, fontSize: 12, color: "#888" }}>— {accessLabels[level]}</span>
                   </Tooltip>
                 </Radio>
               ))}
             </Radio.Group>
           </div>
           {formError !== null && (
-            <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>
-              {formError}
-            </div>
+            <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>{formError}</div>
           )}
         </div>
       </Modal>
@@ -274,11 +403,7 @@ export default function Users() {
         open={showCreds !== null}
         onOk={() => setShowCreds(null)}
         onCancel={() => setShowCreds(null)}
-        footer={[
-          <Button key="close" onClick={() => setShowCreds(null)}>
-            Done
-          </Button>,
-        ]}
+        footer={[<Button key="close" onClick={() => setShowCreds(null)}>Done</Button>]}
       >
         <div style={{ marginTop: 16 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -309,14 +434,85 @@ export default function Users() {
                 <CopyOutlined style={{ color: "#888", cursor: "pointer" }} onClick={() => copyText(showCreds?.password ?? "")} />
               </div>
             </div>
-            <div>
-              <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>DATABASE</div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>DATABASES</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ userSelect: "all" }}>{showCreds?.database}</span>
-                <CopyOutlined style={{ color: "#888", cursor: "pointer" }} onClick={() => copyText(showCreds?.database ?? "")} />
+                <span style={{ userSelect: "all" }}>{showCreds?.databases.join(", ")}</span>
+                <CopyOutlined style={{ color: "#888", cursor: "pointer" }} onClick={() => copyText(showCreds?.databases.join(", ") ?? "")} />
+              </div>
+            </div>
+            <div>
+              <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>CONNECTION STRING</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ userSelect: "all", wordBreak: "break-all" }}>{showCreds?.connectionString}</span>
+                <CopyOutlined style={{ color: "#888", cursor: "pointer", flexShrink: 0 }} onClick={() => copyText(showCreds?.connectionString ?? "")} />
               </div>
             </div>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title={`Edit User — ${editTarget?.username ?? ""}`}
+        open={editOpen}
+        onOk={handleEdit}
+        onCancel={() => { setEditOpen(false); setEditTarget(null); setEditPassword(""); }}
+        confirmLoading={updateMutation.isPending}
+      >
+        <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 4, fontSize: 13, color: "#ccc" }}>
+              New Password (leave blank to keep current)
+            </label>
+            <Input.Password
+              placeholder="new password (8-128 chars)"
+              value={editPassword}
+              onChange={(e) => setEditPassword(e.target.value)}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 4, fontSize: 13, color: "#ccc" }}>
+              Access Level
+            </label>
+            <Radio.Group
+              value={editAccess}
+              onChange={(e) => setEditAccess(e.target.value)}
+              style={{ display: "flex", flexDirection: "column", gap: 8 }}
+            >
+              {(["read", "write", "ddl", "full"] as const).map((level) => (
+                <Radio key={level} value={level}>
+                  <Tooltip title={accessLabels[level]}>
+                    <span style={{ textTransform: "uppercase", fontWeight: 600 }}>{level}</span>
+                    <span style={{ marginLeft: 8, fontSize: 12, color: "#888" }}>— {accessLabels[level]}</span>
+                  </Tooltip>
+                </Radio>
+              ))}
+            </Radio.Group>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title={`Add Database — ${addDbTarget?.username ?? ""}`}
+        open={addDbOpen}
+        onOk={handleAddDb}
+        onCancel={() => { setAddDbOpen(false); setAddDbTarget(null); setAddDbError(null); }}
+        confirmLoading={addDbMutation.isPending}
+      >
+        <div style={{ marginTop: 8 }}>
+          <label style={{ display: "block", marginBottom: 4, fontSize: 13, color: "#ccc" }}>
+            Database
+          </label>
+          <Select
+            placeholder="select database"
+            value={addDbName || undefined}
+            onChange={(v) => { setAddDbName(v ?? ""); setAddDbError(null); }}
+            style={{ width: "100%" }}
+            options={(databases ?? []).map((d) => ({ value: d.name, label: d.name }))}
+          />
+          {addDbError !== null && (
+            <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>{addDbError}</div>
+          )}
         </div>
       </Modal>
     </div>

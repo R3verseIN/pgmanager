@@ -24,7 +24,7 @@ export const ErrorResponseSchema = z.object({
 
 export const UserSchema = z.object({
   username: z.string(),
-  database: z.string(),
+  databases: z.array(z.string()),
   access: z.enum(["read", "write", "ddl", "full"]),
   createdAt: z.string(),
 });
@@ -34,7 +34,7 @@ export type User = z.infer<typeof UserSchema>;
 export const UsersResponseSchema = z.array(UserSchema);
 
 export const CreateUserRequestSchema = z.object({
-  database: z.string().min(1, "database is required"),
+  databases: z.array(z.string()).min(1, "at least one database is required"),
   username: z
     .string()
     .trim()
@@ -42,12 +42,23 @@ export const CreateUserRequestSchema = z.object({
     .max(63, "username too long (max 63 characters)")
     .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "must start with letter or underscore, alphanumeric only"),
   access: z.enum(["read", "write", "ddl", "full"]),
+  password: z.string().optional(),
 });
 
 export const CreateUserResponseSchema = z.object({
   username: z.string(),
   password: z.string(),
-  database: z.string(),
+  databases: z.array(z.string()),
+  connectionString: z.string(),
   access: z.enum(["read", "write", "ddl", "full"]),
   createdAt: z.string(),
+});
+
+export const UpdateUserRequestSchema = z.object({
+  password: z.string().optional(),
+  access: z.enum(["read", "write", "ddl", "full"]).optional(),
+});
+
+export const AddDatabaseRequestSchema = z.object({
+  database: z.string().min(1, "database is required"),
 });

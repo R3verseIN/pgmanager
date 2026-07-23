@@ -140,6 +140,9 @@ export default function App() {
           borderRadius: 6,
         },
         components: {
+          Button: {
+            dangerColor: "#ff4d4f",
+          },
           Menu: {
             darkItemBg: "transparent",
             darkItemColor: "#888",

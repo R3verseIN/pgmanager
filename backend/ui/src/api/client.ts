@@ -1,9 +1,9 @@
 import {
-  DatabaseSchema,
   DatabasesResponseSchema,
   ErrorResponseSchema,
   UsersResponseSchema,
   CreateUserResponseSchema,
+  DatabaseSchema,
 } from "../lib/schemas";
 import type { Database, User } from "../lib/schemas";
 
@@ -64,21 +64,46 @@ export async function fetchUsers(): Promise<User[]> {
 export interface CreateUserResult {
   username: string;
   password: string;
-  database: string;
+  databases: string[];
+  connectionString: string;
   access: "read" | "write" | "ddl" | "full";
   createdAt: string;
 }
 
 export async function createUser(
   username: string,
-  database: string,
+  databases: string[],
   access: "read" | "write" | "ddl" | "full",
+  password?: string,
 ): Promise<CreateUserResult> {
   const data = await request<unknown>("/users", {
     method: "POST",
-    body: JSON.stringify({ username, database, access }),
+    body: JSON.stringify({ username, databases, access, password: password || undefined }),
   });
   return CreateUserResponseSchema.parse(data);
+}
+
+export async function updateUser(
+  username: string,
+  opts: { password?: string; access?: "read" | "write" | "ddl" | "full" },
+): Promise<void> {
+  await request<void>(`/users/${encodeURIComponent(username)}`, {
+    method: "PUT",
+    body: JSON.stringify(opts),
+  });
+}
+
+export async function addUserDatabase(username: string, database: string): Promise<void> {
+  await request<void>(`/users/${encodeURIComponent(username)}/databases`, {
+    method: "POST",
+    body: JSON.stringify({ database }),
+  });
+}
+
+export async function removeUserDatabase(username: string, database: string): Promise<void> {
+  await request<void>(`/users/${encodeURIComponent(username)}/databases/${encodeURIComponent(database)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function deleteUser(username: string): Promise<void> {

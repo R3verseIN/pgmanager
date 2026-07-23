@@ -57,7 +57,10 @@ func main() {
 
 	mux.HandleFunc("GET /api/users", h.ListUsers)
 	mux.HandleFunc("POST /api/users", h.CreateUser)
+	mux.HandleFunc("PUT /api/users/{name}", h.UpdateUser)
 	mux.HandleFunc("DELETE /api/users/{name}", h.DeleteUser)
+	mux.HandleFunc("POST /api/users/{name}/databases", h.AddUserDatabase)
+	mux.HandleFunc("DELETE /api/users/{name}/databases/{db}", h.RemoveUserDatabase)
 
 	subFS, err := fs.Sub(uiFS, "ui/dist")
 	if err != nil {
