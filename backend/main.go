@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"pgmanager/internal/auth"
 	"pgmanager/internal/handler"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -47,6 +48,21 @@ func main() {
 	if err := h.InitUserSchema(ctx); err != nil {
 		log.Printf("warning: failed to init user schema: %v", err)
 	}
+
+	if err := auth.EnsurePgbouncerAuth(ctx, pool); err != nil {
+		log.Printf("warning: failed to ensure pgbouncer auth: %v", err)
+	}
+
+	// Periodic healthcheck for pgbouncer auth
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := auth.EnsurePgbouncerAuth(context.Background(), pool); err != nil {
+				log.Printf("warning: pgbouncer auth healthcheck failed: %v", err)
+			}
+		}
+	}()
 
 	mux := http.NewServeMux()
 

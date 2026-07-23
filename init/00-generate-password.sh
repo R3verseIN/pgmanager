@@ -15,11 +15,18 @@ CURRENT_PASSWORD=$(cat "$PASSWORD_FILE")
 psql -v ON_ERROR_STOP=1 -U pgmanager -d postgres <<-EOSQL
     ALTER USER pgmanager PASSWORD '${CURRENT_PASSWORD}';
 
-    CREATE USER pgbouncer_auth WITH PASSWORD 'pgbouncer_auth_password';
+    DO \$\$
+    BEGIN
+        CREATE USER pgbouncer_auth WITH PASSWORD 'pgbouncer_auth_password';
+    EXCEPTION WHEN duplicate_object THEN
+        RAISE NOTICE 'user pgbouncer_auth already exists, skipping';
+    END
+    \$\$;
+
     GRANT CONNECT ON DATABASE postgres TO pgbouncer_auth;
     GRANT USAGE ON SCHEMA public TO pgbouncer_auth;
 
-    CREATE OR REPLACE FUNCTION pgbouncer_get_user(
+    CREATE OR REPLACE FUNCTION public.pgbouncer_get_user(
         p_usename TEXT
     )
     RETURNS TABLE (
@@ -44,8 +51,8 @@ psql -v ON_ERROR_STOP=1 -U pgmanager -d postgres <<-EOSQL
     END;
     \$\$ LANGUAGE plpgsql;
 
-    REVOKE ALL ON FUNCTION pgbouncer_get_user(TEXT) FROM PUBLIC;
-    GRANT EXECUTE ON FUNCTION pgbouncer_get_user(TEXT) TO pgbouncer_auth;
+    REVOKE ALL ON FUNCTION public.pgbouncer_get_user(TEXT) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.pgbouncer_get_user(TEXT) TO pgbouncer_auth;
 EOSQL
 
 echo "pgmanager password and pgbouncer_auth user created successfully"
