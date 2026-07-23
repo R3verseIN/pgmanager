@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -23,10 +25,7 @@ var uiFS embed.FS
 func main() {
 	ctx := context.Background()
 
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		databaseURL = "postgres://pgmanager:pgmanager@localhost:5432/postgres?sslmode=disable"
-	}
+	databaseURL := buildDatabaseURL()
 
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
@@ -92,6 +91,68 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("shutdown error: %v", err)
 	}
+}
+
+func buildDatabaseURL() string {
+	if url := os.Getenv("DATABASE_URL"); url != "" {
+		return url
+	}
+
+	secretPath := os.Getenv("SECRET_PATH")
+	if secretPath == "" {
+		secretPath = "/secrets/pgmanager-password"
+	}
+
+	password := readPassword(secretPath)
+
+	host := os.Getenv("PGHOST")
+	if host == "" {
+		host = "localhost"
+	}
+
+	port := os.Getenv("PGPORT")
+	if port == "" {
+		port = "5432"
+	}
+
+	user := os.Getenv("PGUSER")
+	if user == "" {
+		user = "pgmanager"
+	}
+
+	dbname := os.Getenv("PGDATABASE")
+	if dbname == "" {
+		dbname = "postgres"
+	}
+
+	sslmode := os.Getenv("PGSSLMODE")
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+
+	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", user, password, host, port, dbname, sslmode)
+	log.Printf("connecting to database at %s:%s/%s as %s", host, port, dbname, user)
+	return url
+}
+
+func readPassword(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		log.Fatalf("failed to open password file %s: %v", path, err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		log.Fatalf("failed to read password file %s: %v", path, err)
+	}
+
+	password := strings.TrimSpace(string(data))
+	if password == "" {
+		log.Fatalf("password file %s is empty", path)
+	}
+
+	return password
 }
 
 func spaHandler(distFS fs.FS) http.HandlerFunc {

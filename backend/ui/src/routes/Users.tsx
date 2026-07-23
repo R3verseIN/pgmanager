@@ -56,8 +56,8 @@ export default function Users() {
   });
 
   const { data: databases } = useQuery({
-    queryKey: ["databases", true],
-    queryFn: () => fetchDatabases(true),
+    queryKey: ["databases"],
+    queryFn: () => fetchDatabases(false),
   });
 
   const createMutation = useMutation({

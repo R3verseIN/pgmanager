@@ -15,7 +15,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://pgmanager:pgmanager@localhost:5432/postgres?sslmode=disable"
+		dsn = "postgres://pgmanager:pgmanager@localhost:5433/postgres?sslmode=disable"
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
