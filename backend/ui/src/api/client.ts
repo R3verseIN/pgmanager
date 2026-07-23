@@ -1,5 +1,11 @@
-import { DatabaseSchema, DatabasesResponseSchema, ErrorResponseSchema } from "../lib/schemas";
-import type { Database } from "../lib/schemas";
+import {
+  DatabaseSchema,
+  DatabasesResponseSchema,
+  ErrorResponseSchema,
+  UsersResponseSchema,
+  CreateUserResponseSchema,
+} from "../lib/schemas";
+import type { Database, User } from "../lib/schemas";
 
 const BASE_URL = "/api";
 
@@ -46,6 +52,37 @@ export async function createDatabase(name: string): Promise<Database> {
 
 export async function deleteDatabase(name: string): Promise<void> {
   await request<void>(`/databases/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchUsers(): Promise<User[]> {
+  const data = await request<unknown>("/users");
+  return UsersResponseSchema.parse(data);
+}
+
+export interface CreateUserResult {
+  username: string;
+  password: string;
+  database: string;
+  access: "read" | "write" | "ddl" | "full";
+  createdAt: string;
+}
+
+export async function createUser(
+  username: string,
+  database: string,
+  access: "read" | "write" | "ddl" | "full",
+): Promise<CreateUserResult> {
+  const data = await request<unknown>("/users", {
+    method: "POST",
+    body: JSON.stringify({ username, database, access }),
+  });
+  return CreateUserResponseSchema.parse(data);
+}
+
+export async function deleteUser(username: string): Promise<void> {
+  await request<void>(`/users/${encodeURIComponent(username)}`, {
     method: "DELETE",
   });
 }

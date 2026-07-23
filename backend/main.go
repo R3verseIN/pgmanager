@@ -44,11 +44,20 @@ func main() {
 	}
 
 	h := handler.New(pool)
+
+	if err := h.InitUserSchema(ctx); err != nil {
+		log.Printf("warning: failed to init user schema: %v", err)
+	}
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/databases", h.ListDatabases)
 	mux.HandleFunc("POST /api/databases", h.CreateDatabase)
 	mux.HandleFunc("DELETE /api/databases/{name}", h.DeleteDatabase)
+
+	mux.HandleFunc("GET /api/users", h.ListUsers)
+	mux.HandleFunc("POST /api/users", h.CreateUser)
+	mux.HandleFunc("DELETE /api/users/{name}", h.DeleteUser)
 
 	subFS, err := fs.Sub(uiFS, "ui/dist")
 	if err != nil {

@@ -5,3 +5,13 @@ body {
 .row-odd {
   background: rgba(255, 255, 255, 0.02);
 }
+
+.ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.ant-layout-sider-trigger {
+  background: #111 !important;
+  border-top: 1px solid #1e1e1e;
+}

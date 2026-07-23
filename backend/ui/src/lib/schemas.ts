@@ -21,3 +21,33 @@ export const CreateDatabaseSchema = z.object({
 export const ErrorResponseSchema = z.object({
   error: z.string(),
 });
+
+export const UserSchema = z.object({
+  username: z.string(),
+  database: z.string(),
+  access: z.enum(["read", "write", "ddl", "full"]),
+  createdAt: z.string(),
+});
+
+export type User = z.infer<typeof UserSchema>;
+
+export const UsersResponseSchema = z.array(UserSchema);
+
+export const CreateUserRequestSchema = z.object({
+  database: z.string().min(1, "database is required"),
+  username: z
+    .string()
+    .trim()
+    .min(1, "username is required")
+    .max(63, "username too long (max 63 characters)")
+    .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "must start with letter or underscore, alphanumeric only"),
+  access: z.enum(["read", "write", "ddl", "full"]),
+});
+
+export const CreateUserResponseSchema = z.object({
+  username: z.string(),
+  password: z.string(),
+  database: z.string(),
+  access: z.enum(["read", "write", "ddl", "full"]),
+  createdAt: z.string(),
+});
