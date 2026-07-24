@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
-import { Database, Users as UsersIcon, Settings, Loader2 } from "lucide-react";
+import { Database, Users as UsersIcon, Settings, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DatabasesTable from "./components/DatabasesTable";
@@ -14,10 +15,17 @@ function AppLayout() {
   const selectedKey = location.pathname === "/users" ? "users" : "databases";
   const { user } = useAuth();
 
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="flex w-56 flex-col border-r border-border bg-card">
-        <div className="flex h-14 items-center gap-3 border-b border-border px-4">
+      <aside 
+        className={cn(
+          "flex flex-col border-r border-border bg-card transition-all duration-300",
+          isCollapsed ? "w-20" : "w-56"
+        )}
+      >
+        <div className="flex h-14 items-center gap-3 border-b border-border px-4 overflow-hidden">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -30,52 +38,83 @@ function AppLayout() {
               <TooltipContent side="right">pgmanager</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <span className="font-semibold text-foreground text-sm whitespace-nowrap">
-            pgmanager
-          </span>
+          {!isCollapsed && (
+            <span className="font-semibold text-foreground text-sm whitespace-nowrap animate-in fade-in">
+              pgmanager
+            </span>
+          )}
         </div>
 
         <nav className="flex-1 space-y-1 p-2">
-          <Link
-            to="/"
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              selectedKey === "databases"
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            )}
-          >
-            <Database className="h-4 w-4" />
-            Databases
-          </Link>
-          {user?.role === "admin" && (
-            <Link
-              to="/users"
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                selectedKey === "users"
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              )}
-            >
-              <UsersIcon className="h-4 w-4" />
-              Users
-            </Link>
-          )}
-        </nav>
-
-        <div className="border-t border-border p-2">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="flex cursor-not-allowed items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground opacity-50">
-                  <Settings className="h-4 w-4" />
-                  Settings
+                <Link
+                  to="/"
+                  className={cn(
+                    "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    isCollapsed ? "justify-center" : "gap-3",
+                    selectedKey === "databases"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  )}
+                >
+                  <Database className="h-4 w-4 shrink-0" />
+                  {!isCollapsed && <span>Databases</span>}
+                </Link>
+              </TooltipTrigger>
+              {isCollapsed && <TooltipContent side="right">Databases</TooltipContent>}
+            </Tooltip>
+
+            {user?.role === "admin" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    to="/users"
+                    className={cn(
+                      "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors mt-1",
+                      isCollapsed ? "justify-center" : "gap-3",
+                      selectedKey === "users"
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    )}
+                  >
+                    <UsersIcon className="h-4 w-4 shrink-0" />
+                    {!isCollapsed && <span>Users</span>}
+                  </Link>
+                </TooltipTrigger>
+                {isCollapsed && <TooltipContent side="right">Users</TooltipContent>}
+              </Tooltip>
+            )}
+          </TooltipProvider>
+        </nav>
+
+        <div className="border-t border-border p-2 space-y-1">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className={cn(
+                  "flex cursor-not-allowed items-center rounded-md px-3 py-2 text-sm font-medium text-muted-foreground opacity-50",
+                  isCollapsed ? "justify-center" : "gap-3"
+                )}>
+                  <Settings className="h-4 w-4 shrink-0" />
+                  {!isCollapsed && <span>Settings</span>}
                 </div>
               </TooltipTrigger>
               <TooltipContent side="right">Not implemented yet</TooltipContent>
             </Tooltip>
           </TooltipProvider>
+
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className={cn(
+              "flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors",
+              isCollapsed ? "justify-center" : "gap-3"
+            )}
+          >
+            {isCollapsed ? <ChevronRight className="h-4 w-4 shrink-0" /> : <ChevronLeft className="h-4 w-4 shrink-0" />}
+            {!isCollapsed && <span>Collapse Sidebar</span>}
+          </button>
         </div>
       </aside>
 

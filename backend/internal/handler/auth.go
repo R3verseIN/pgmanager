@@ -343,13 +343,27 @@ func (h *AuthHandler) DeleteAuthUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var id int
+	var role string
 	err := h.pool.QueryRow(r.Context(),
-		"SELECT id FROM auth_users WHERE username = $1",
+		"SELECT id, role FROM auth_users WHERE username = $1",
 		username,
-	).Scan(&id)
+	).Scan(&id, &role)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
+	}
+
+	if role == "admin" {
+		var adminCount int
+		err = h.pool.QueryRow(r.Context(), "SELECT COUNT(*) FROM auth_users WHERE role = 'admin'").Scan(&adminCount)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to check admin count")
+			return
+		}
+		if adminCount <= 1 {
+			writeError(w, http.StatusBadRequest, "cannot delete the last admin")
+			return
+		}
 	}
 
 	auth.DeleteUserSessions(r.Context(), h.pool, id)
