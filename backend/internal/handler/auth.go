@@ -34,13 +34,15 @@ type changePasswordRequest struct {
 }
 
 type createAuthUserRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Username  string   `json:"username"`
+	Password  string   `json:"password"`
+	Role      string   `json:"role"`
+	Databases []string `json:"databases"`
 }
 
 type updateAuthUserRequest struct {
-	Role string `json:"role,omitempty"`
+	Role      string   `json:"role,omitempty"`
+	Databases []string `json:"databases"`
 }
 
 func (h *AuthHandler) SetupCheck(w http.ResponseWriter, r *http.Request) {
@@ -256,9 +258,27 @@ func (h *AuthHandler) CreateAuthUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "password must be at most 72 characters")
 		return
 	}
-	if req.Role != "admin" && req.Role != "viewer" {
-		writeError(w, http.StatusBadRequest, "role must be admin or viewer")
+	if req.Role != "admin" && req.Role != "dev" && req.Role != "viewer" {
+		writeError(w, http.StatusBadRequest, "role must be admin, dev, or viewer")
 		return
+	}
+
+	if req.Role == "dev" {
+		if len(req.Databases) == 0 {
+			writeError(w, http.StatusBadRequest, "databases are required for dev role")
+			return
+		}
+		for _, db := range req.Databases {
+			if protectedDatabases[db] {
+				writeError(w, http.StatusBadRequest, "cannot assign system database: "+db)
+				return
+			}
+			var dbExists bool
+			if err := h.pool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)", db).Scan(&dbExists); err != nil || !dbExists {
+				writeError(w, http.StatusBadRequest, "database does not exist: "+db)
+				return
+			}
+		}
 	}
 
 	var exists bool
@@ -290,6 +310,20 @@ func (h *AuthHandler) CreateAuthUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Role == "dev" {
+		var userID int
+		if err := h.pool.QueryRow(r.Context(), "SELECT id FROM auth_users WHERE username = $1", req.Username).Scan(&userID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get user id")
+			return
+		}
+		for _, db := range req.Databases {
+			if _, err := h.pool.Exec(r.Context(), "INSERT INTO dev_databases (auth_user_id, database_name) VALUES ($1, $2)", userID, db); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to assign database: "+err.Error())
+				return
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "created"})
 }
 
@@ -312,8 +346,8 @@ func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Role != "admin" && req.Role != "viewer" {
-		writeError(w, http.StatusBadRequest, "role must be admin or viewer")
+	if req.Role != "admin" && req.Role != "dev" && req.Role != "viewer" {
+		writeError(w, http.StatusBadRequest, "role must be admin, dev, or viewer")
 		return
 	}
 
@@ -328,7 +362,27 @@ func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if currentRole == "admin" && req.Role == "viewer" {
+	// Validate databases if switching to dev
+	if req.Role == "dev" {
+		if len(req.Databases) == 0 {
+			writeError(w, http.StatusBadRequest, "databases are required for dev role")
+			return
+		}
+		for _, db := range req.Databases {
+			if protectedDatabases[db] {
+				writeError(w, http.StatusBadRequest, "cannot assign system database: "+db)
+				return
+			}
+			var dbExists bool
+			if err := h.pool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)", db).Scan(&dbExists); err != nil || !dbExists {
+				writeError(w, http.StatusBadRequest, "database does not exist: "+db)
+				return
+			}
+		}
+	}
+
+	// Handle demoting the last admin
+	if currentRole == "admin" && req.Role != "admin" {
 		ct, err := h.pool.Exec(r.Context(),
 			"UPDATE auth_users SET role = $1, updated_at = NOW() WHERE id = $2 AND (SELECT COUNT(*) FROM auth_users WHERE role = 'admin') > 1",
 			req.Role, id,
@@ -341,17 +395,26 @@ func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "cannot change role of the last admin")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
-		return
+	} else {
+		_, err = h.pool.Exec(r.Context(),
+			"UPDATE auth_users SET role = $1, updated_at = NOW() WHERE id = $2",
+			req.Role, id,
+		)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update user")
+			return
+		}
 	}
 
-	_, err = h.pool.Exec(r.Context(),
-		"UPDATE auth_users SET role = $1, updated_at = NOW() WHERE id = $2",
-		req.Role, id,
-	)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update user")
-		return
+	// Manage dev_databases
+	if req.Role == "dev" {
+		h.pool.Exec(r.Context(), "DELETE FROM dev_databases WHERE auth_user_id = $1", id)
+		for _, db := range req.Databases {
+			h.pool.Exec(r.Context(), "INSERT INTO dev_databases (auth_user_id, database_name) VALUES ($1, $2) ON CONFLICT DO NOTHING", id, db)
+		}
+	} else {
+		// Clear dev_databases when switching away from dev
+		h.pool.Exec(r.Context(), "DELETE FROM dev_databases WHERE auth_user_id = $1", id)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
@@ -410,14 +473,22 @@ func (h *AuthHandler) DeleteAuthUser(w http.ResponseWriter, r *http.Request) {
 }
 
 type authUserListItem struct {
-	ID        int    `json:"id"`
-	Username  string `json:"username"`
-	Role      string `json:"role"`
-	CreatedAt string `json:"createdAt"`
+	ID        int      `json:"id"`
+	Username  string   `json:"username"`
+	Role      string   `json:"role"`
+	Databases []string `json:"databases,omitempty"`
+	CreatedAt string   `json:"createdAt"`
 }
 
 func (h *AuthHandler) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.pool.Query(r.Context(), "SELECT id, username, role, created_at::text FROM auth_users ORDER BY id")
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT au.id, au.username, au.role, au.created_at::text,
+			COALESCE(array_remove(array_agg(dd.database_name) FILTER (WHERE dd.database_name IS NOT NULL), NULL), '{}') AS databases
+		FROM auth_users au
+		LEFT JOIN dev_databases dd ON dd.auth_user_id = au.id
+		GROUP BY au.id, au.username, au.role, au.created_at
+		ORDER BY au.id
+	`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list users")
 		return
@@ -427,7 +498,7 @@ func (h *AuthHandler) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
 	var users []authUserListItem
 	for rows.Next() {
 		var u authUserListItem
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.CreatedAt, &u.Databases); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to scan user")
 			return
 		}

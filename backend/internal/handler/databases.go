@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 
+	"pgmanager/internal/auth"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -55,6 +57,25 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func (h *Handler) ListDatabases(w http.ResponseWriter, r *http.Request) {
 	showSystem := r.URL.Query().Get("showSystem") == "true"
 
+	user := auth.GetUserFromContext(r.Context())
+
+	var allowedDatabases map[string]bool
+	if user != nil && user.Role == "dev" {
+		allowedDatabases = make(map[string]bool)
+		rows, err := h.pool.Query(r.Context(), "SELECT database_name FROM dev_databases WHERE auth_user_id = $1", user.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list dev databases")
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var db string
+			if err := rows.Scan(&db); err == nil {
+				allowedDatabases[db] = true
+			}
+		}
+	}
+
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT datname
 		FROM pg_catalog.pg_database
@@ -75,6 +96,9 @@ func (h *Handler) ListDatabases(w http.ResponseWriter, r *http.Request) {
 		}
 		db.Protected = protectedDatabases[db.Name]
 		if !showSystem && db.Protected {
+			continue
+		}
+		if allowedDatabases != nil && !allowedDatabases[db.Name] {
 			continue
 		}
 		databases = append(databases, db)

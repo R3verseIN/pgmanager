@@ -115,9 +115,9 @@ export async function deleteUser(username: string): Promise<void> {
   });
 }
 
-export async function fetchMe(): Promise<{ username: string; role: "admin" | "viewer" }> {
+export async function fetchMe(): Promise<{ username: string; role: "admin" | "dev" | "viewer" }> {
   const data = await request<unknown>("/auth/me");
-  return data as { username: string; role: "admin" | "viewer" };
+  return data as { username: string; role: "admin" | "dev" | "viewer" };
 }
 
 export async function login(username: string, password: string): Promise<void> {
@@ -152,17 +152,17 @@ export async function changePassword(currentPassword: string, newPassword: strin
   });
 }
 
-export async function createAuthUser(username: string, password: string, role: "admin" | "viewer"): Promise<void> {
+export async function createAuthUser(username: string, password: string, role: "admin" | "dev" | "viewer", databases?: string[]): Promise<void> {
   await request<unknown>("/auth/users", {
     method: "POST",
-    body: JSON.stringify({ username, password, role }),
+    body: JSON.stringify({ username, password, role, databases: databases || undefined }),
   });
 }
 
-export async function updateAuthUser(username: string, role: "admin" | "viewer"): Promise<void> {
+export async function updateAuthUser(username: string, role: "admin" | "dev" | "viewer", databases?: string[]): Promise<void> {
   await request<unknown>(`/auth/users/${encodeURIComponent(username)}`, {
     method: "PUT",
-    body: JSON.stringify({ role }),
+    body: JSON.stringify({ role, databases: databases || undefined }),
   });
 }
 

@@ -3,7 +3,7 @@ import { fetchMe, login as apiLogin, logout as apiLogout, fetchSetupCheck } from
 
 interface User {
   username: string;
-  role: "admin" | "viewer";
+  role: "admin" | "dev" | "viewer";
 }
 
 interface AuthContextType {
@@ -13,6 +13,8 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   isAdmin: boolean;
+  isDev: boolean;
+  isViewer: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -58,6 +60,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         isAdmin: user?.role === "admin",
+        isDev: user?.role === "dev",
+        isViewer: user?.role === "viewer",
       }}
     >
       {children}

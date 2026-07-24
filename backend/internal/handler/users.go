@@ -95,9 +95,33 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 			id            SERIAL PRIMARY KEY,
 			username      TEXT UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
-			role          TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+			role          TEXT NOT NULL CHECK (role IN ('admin', 'dev', 'viewer')),
 			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Migration: update CHECK constraint to include 'dev'
+	_, _ = h.pool.Exec(ctx, `
+		DO $$
+		BEGIN
+			IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'auth_users_role_check' AND conrelid = 'auth_users'::regclass) THEN
+				ALTER TABLE auth_users DROP CONSTRAINT auth_users_role_check;
+				ALTER TABLE auth_users ADD CONSTRAINT auth_users_role_check CHECK (role IN ('admin', 'dev', 'viewer'));
+			END IF;
+		END
+		$$;
+	`)
+
+	_, err = h.pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS dev_databases (
+			auth_user_id  INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+			database_name TEXT NOT NULL,
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (auth_user_id, database_name)
 		);
 	`)
 	if err != nil {

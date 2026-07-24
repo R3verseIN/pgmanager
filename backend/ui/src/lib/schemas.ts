@@ -75,7 +75,7 @@ export const SetupRequestSchema = z.object({
 
 export const AuthUserSchema = z.object({
   username: z.string(),
-  role: z.enum(["admin", "viewer"]),
+  role: z.enum(["admin", "dev", "viewer"]),
 });
 
 export type AuthUser = z.infer<typeof AuthUserSchema>;
@@ -85,7 +85,8 @@ export const AuthUsersResponseSchema = z.array(AuthUserSchema);
 export const AuthUserListItemSchema = z.object({
   id: z.number(),
   username: z.string(),
-  role: z.enum(["admin", "viewer"]),
+  role: z.enum(["admin", "dev", "viewer"]),
+  databases: z.array(z.string()).optional(),
   createdAt: z.string(),
 });
 
@@ -105,5 +106,6 @@ export const ChangePasswordRequestSchema = z.object({
 export const CreateAuthUserRequestSchema = z.object({
   username: z.string().min(3, "username must be at least 3 characters"),
   password: z.string().min(8, "password must be at least 8 characters"),
-  role: z.enum(["admin", "viewer"]),
+  role: z.enum(["admin", "dev", "viewer"]),
+  databases: z.array(z.string()).optional(),
 });

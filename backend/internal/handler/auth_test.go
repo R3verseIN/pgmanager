@@ -22,11 +22,16 @@ func setupAuthTest(t *testing.T) (*AuthHandler, *pgxpool.Pool, context.Context) 
 
 	// clean slate
 	pool.Exec(ctx, "DELETE FROM sessions")
+	pool.Exec(ctx, "DELETE FROM dev_databases")
 	pool.Exec(ctx, "DELETE FROM auth_users")
+	pool.Exec(ctx, "DROP DATABASE IF EXISTS mydb")
+	pool.Exec(ctx, "CREATE DATABASE mydb")
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, "DELETE FROM sessions")
+		pool.Exec(ctx, "DELETE FROM dev_databases")
 		pool.Exec(ctx, "DELETE FROM auth_users")
+		pool.Exec(ctx, "DROP DATABASE IF EXISTS mydb")
 	})
 
 	return ah, pool, ctx
@@ -530,5 +535,243 @@ func TestResetPassword_InvalidatesSessions(t *testing.T) {
 	pool.QueryRow(cleanCtx, "SELECT COUNT(*) FROM sessions WHERE user_id = $1", viewerID).Scan(&sessionCount)
 	if sessionCount != 0 {
 		t.Fatalf("expected 0 sessions after reset, got %d", sessionCount)
+	}
+}
+
+// --- Dev role tests ---
+
+func createTestDev(t *testing.T, ah *AuthHandler, ctx context.Context, username, password string, databases []string) {
+	t.Helper()
+	dbsJSON, _ := json.Marshal(databases)
+	body := `{"username":"` + username + `","password":"` + password + `","role":"dev","databases":` + string(dbsJSON) + `}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/users", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.CreateAuthUser(w, req)
+	if w.Code != 201 {
+		t.Fatalf("createTestDev: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateAuthUser_DevWithDatabases(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+
+	body := `{"username":"dev1","password":"devpass123","role":"dev","databases":["mydb"]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/users", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.CreateAuthUser(w, req)
+
+	if w.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateAuthUser_DevWithoutDatabases(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+
+	body := `{"username":"dev1","password":"devpass123","role":"dev","databases":[]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/users", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.CreateAuthUser(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "databases are required for dev role" {
+		t.Fatalf("expected 'databases are required for dev role', got %q", resp["error"])
+	}
+}
+
+func TestCreateAuthUser_DevWithSystemDatabase(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+
+	body := `{"username":"dev1","password":"devpass123","role":"dev","databases":["pgmanager"]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/users", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.CreateAuthUser(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "cannot assign system database: pgmanager" {
+		t.Fatalf("expected 'cannot assign system database: pgmanager', got %q", resp["error"])
+	}
+}
+
+func TestCreateAuthUser_DevWithNonexistentDatabase(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+
+	body := `{"username":"dev1","password":"devpass123","role":"dev","databases":["nonexistent"]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/users", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.CreateAuthUser(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "database does not exist: nonexistent" {
+		t.Fatalf("expected 'database does not exist: nonexistent', got %q", resp["error"])
+	}
+}
+
+func TestListAuthUsers_WithDevDatabases(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+	createTestDev(t, ah, ctx, "dev1", "devpass123", []string{"mydb"})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/users", nil).WithContext(ctx)
+	ah.ListAuthUsers(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var users []authUserListItem
+	if err := json.Unmarshal(w.Body.Bytes(), &users); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
+	}
+
+	// Find the dev user
+	var devUser *authUserListItem
+	for i, u := range users {
+		if u.Username == "dev1" {
+			devUser = &users[i]
+			break
+		}
+	}
+	if devUser == nil {
+		t.Fatal("dev user not found")
+	}
+	if devUser.Role != "dev" {
+		t.Fatalf("expected role 'dev', got %q", devUser.Role)
+	}
+	if len(devUser.Databases) != 1 || devUser.Databases[0] != "mydb" {
+		t.Fatalf("expected databases ['mydb'], got %v", devUser.Databases)
+	}
+}
+
+func TestUpdateAuthUser_ChangeToDev(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+	createTestAuthUser(t, ah, ctx, "viewer1", "viewer1234", "viewer")
+
+	body := `{"role":"dev","databases":["mydb"]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/auth/users/viewer1", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.UpdateAuthUser(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify databases assigned
+	var dbCount int
+	ah.pool.QueryRow(ctx, "SELECT COUNT(*) FROM dev_databases WHERE auth_user_id = (SELECT id FROM auth_users WHERE username = 'viewer1')").Scan(&dbCount)
+	if dbCount != 1 {
+		t.Fatalf("expected 1 dev_database, got %d", dbCount)
+	}
+}
+
+func TestUpdateAuthUser_ChangeFromDev(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+	createTestDev(t, ah, ctx, "dev1", "devpass123", []string{"mydb"})
+
+	body := `{"role":"viewer"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/auth/users/dev1", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.UpdateAuthUser(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify databases cleared
+	var dbCount int
+	ah.pool.QueryRow(ctx, "SELECT COUNT(*) FROM dev_databases WHERE auth_user_id = (SELECT id FROM auth_users WHERE username = 'dev1')").Scan(&dbCount)
+	if dbCount != 0 {
+		t.Fatalf("expected 0 dev_databases after role change, got %d", dbCount)
+	}
+}
+
+func TestUpdateAuthUser_DevWithoutDatabases(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+	createTestAuthUser(t, ah, ctx, "viewer1", "viewer1234", "viewer")
+
+	body := `{"role":"dev","databases":[]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/auth/users/viewer1", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.UpdateAuthUser(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteLastAdmin_WithDevs(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+	createTestDev(t, ah, ctx, "dev1", "devpass123", []string{"mydb"})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/auth/users/admin", nil).WithContext(ctx)
+	ah.DeleteAuthUser(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "cannot delete the last admin" {
+		t.Fatalf("expected 'cannot delete the last admin', got %q", resp["error"])
+	}
+}
+
+func TestChangeLastAdminRole_WithDevs(t *testing.T) {
+	ah, _, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+	createTestDev(t, ah, ctx, "dev1", "devpass123", []string{"mydb"})
+
+	body := `{"role":"dev","databases":["mydb"]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/auth/users/admin", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.UpdateAuthUser(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "cannot change role of the last admin" {
+		t.Fatalf("expected 'cannot change role of the last admin', got %q", resp["error"])
 	}
 }

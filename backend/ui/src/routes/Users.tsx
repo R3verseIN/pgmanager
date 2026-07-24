@@ -80,12 +80,14 @@ export default function Users() {
   const [authCreateOpen, setAuthCreateOpen] = useState(false);
   const [authCreateUsername, setAuthCreateUsername] = useState("");
   const [authCreatePassword, setAuthCreatePassword] = useState("");
-  const [authCreateRole, setAuthCreateRole] = useState<"admin" | "viewer">("viewer");
+  const [authCreateRole, setAuthCreateRole] = useState<"admin" | "dev" | "viewer">("viewer");
+  const [authCreateDatabases, setAuthCreateDatabases] = useState<string[]>([]);
   const [authCreateError, setAuthCreateError] = useState<string | null>(null);
   const [authShowCreds, setAuthShowCreds] = useState<{ username: string; password: string } | null>(null);
   const [authEditOpen, setAuthEditOpen] = useState(false);
   const [authEditTarget, setAuthEditTarget] = useState<AuthUserListItem | null>(null);
-  const [authEditRole, setAuthEditRole] = useState<"admin" | "viewer">("viewer");
+  const [authEditRole, setAuthEditRole] = useState<"admin" | "dev" | "viewer">("viewer");
+  const [authEditDatabases, setAuthEditDatabases] = useState<string[]>([]);
   const [authResetOpen, setAuthResetOpen] = useState(false);
   const [authResetTarget, setAuthResetTarget] = useState<AuthUserListItem | null>(null);
   const [authResetPassword, setAuthResetPassword] = useState<string | null>(null);
@@ -161,14 +163,15 @@ export default function Users() {
 
   // Auth User Mutations
   const createAuthMutation = useMutation({
-    mutationFn: (vars: { username: string; password?: string; role: "admin" | "viewer" }) =>
-      createAuthUser(vars.username, vars.password || "", vars.role),
+    mutationFn: (vars: { username: string; password?: string; role: "admin" | "dev" | "viewer"; databases?: string[] }) =>
+      createAuthUser(vars.username, vars.password || "", vars.role, vars.databases),
     onSuccess: (_data, vars) => {
       toast.success("Auth user created");
       setAuthCreateOpen(false);
       setAuthCreateUsername("");
       setAuthCreatePassword("");
       setAuthCreateRole("viewer");
+      setAuthCreateDatabases([]);
       setAuthCreateError(null);
       queryClient.invalidateQueries({ queryKey: ["authUsers"] });
       if (vars.password) {
@@ -179,7 +182,7 @@ export default function Users() {
   });
 
   const updateAuthMutation = useMutation({
-    mutationFn: (vars: { username: string; role: "admin" | "viewer" }) => updateAuthUser(vars.username, vars.role),
+    mutationFn: (vars: { username: string; role: "admin" | "dev" | "viewer"; databases?: string[] }) => updateAuthUser(vars.username, vars.role, vars.databases),
     onSuccess: () => {
       toast.success("Auth user updated");
       setAuthEditOpen(false);
@@ -254,19 +257,36 @@ export default function Users() {
 
   function handleAuthCreate(e: React.FormEvent) {
     e.preventDefault();
-    const result = CreateAuthUserRequestSchema.safeParse({ username: authCreateUsername, password: authCreatePassword || undefined, role: authCreateRole });
+    const vars: { username: string; password?: string; role: "admin" | "dev" | "viewer"; databases?: string[] } = {
+      username: authCreateUsername,
+      role: authCreateRole,
+    };
+    if (authCreatePassword) vars.password = authCreatePassword;
+    if (authCreateRole === "dev" && authCreateDatabases.length > 0) vars.databases = authCreateDatabases;
+
+    const result = CreateAuthUserRequestSchema.safeParse({
+      username: vars.username,
+      password: vars.password || undefined,
+      role: vars.role,
+      databases: vars.databases,
+    });
     if (!result.success) {
       setAuthCreateError(result.error.errors[0]?.message ?? "Invalid input");
       return;
     }
     setAuthCreateError(null);
-    createAuthMutation.mutate({ username: result.data.username, password: result.data.password, role: result.data.role });
+    createAuthMutation.mutate(vars);
   }
 
   function handleAuthEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!authEditTarget) return;
-    updateAuthMutation.mutate({ username: authEditTarget.username, role: authEditRole });
+    const vars: { username: string; role: "admin" | "dev" | "viewer"; databases?: string[] } = {
+      username: authEditTarget.username,
+      role: authEditRole,
+    };
+    if (authEditRole === "dev" && authEditDatabases.length > 0) vars.databases = authEditDatabases;
+    updateAuthMutation.mutate(vars);
   }
 
   function copyText(text: string) {
@@ -409,6 +429,7 @@ export default function Users() {
               <TableRow>
                 <TableHead>Username</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead className="hidden sm:table-cell">Databases</TableHead>
                 <TableHead className="hidden sm:table-cell">Created</TableHead>
                 <TableHead className="w-30"></TableHead>
               </TableRow>
@@ -416,11 +437,11 @@ export default function Users() {
             <TableBody>
               {authLoading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">Loading...</TableCell>
+                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">Loading...</TableCell>
                 </TableRow>
               ) : !authUsers?.length ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">No auth users found.</TableCell>
+                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No auth users found.</TableCell>
                 </TableRow>
               ) : (
                 authUsers.map((authUser: AuthUserListItem, i: number) => (
@@ -431,9 +452,20 @@ export default function Users() {
                   >
                     <TableCell className="font-medium">{authUser.username}</TableCell>
                     <TableCell>
-                      <Badge variant={authUser.role === "admin" ? "destructive" : "secondary"}>
+                      <Badge variant={authUser.role === "admin" ? "destructive" : authUser.role === "dev" ? "outline" : "secondary"}>
                         {authUser.role.toUpperCase()}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      {authUser.role === "dev" && authUser.databases && authUser.databases.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {authUser.databases.map((db) => (
+                            <Badge key={db} variant="secondary" className="text-xs">{db}</Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">{new Date(authUser.createdAt).toLocaleDateString()}</TableCell>
                     <TableCell>
@@ -441,6 +473,7 @@ export default function Users() {
                         <Button variant="ghost" size="icon" onClick={() => {
                           setAuthEditTarget(authUser);
                           setAuthEditRole(authUser.role);
+                          setAuthEditDatabases(authUser.databases || []);
                           setAuthEditOpen(true);
                         }}>
                           <Edit className="h-4 w-4" />
@@ -634,28 +667,62 @@ export default function Users() {
               </div>
               <div className="space-y-2">
                 <Label>Role</Label>
-                <RadioGroup value={authCreateRole} onValueChange={(val: any) => setAuthCreateRole(val)} className="grid grid-cols-2 gap-3 pt-2">
+                <RadioGroup value={authCreateRole} onValueChange={(val: any) => {
+                  setAuthCreateRole(val);
+                  if (val !== "dev") setAuthCreateDatabases([]);
+                }} className="grid grid-cols-3 gap-3 pt-2">
                   <RadioGroupItem value="admin" id="role-admin">
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Admin</span>
                       <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
                     </div>
-                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Can manage users and databases</span>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Full access</span>
+                  </RadioGroupItem>
+                  <RadioGroupItem value="dev" id="role-dev">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Dev</span>
+                      <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
+                    </div>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Assigned DBs only</span>
                   </RadioGroupItem>
                   <RadioGroupItem value="viewer" id="role-viewer">
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Viewer</span>
                       <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
                     </div>
-                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Read-only access to dashboard</span>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Read-only</span>
                   </RadioGroupItem>
                 </RadioGroup>
               </div>
+              {authCreateRole === "dev" && (
+                <div className="space-y-2">
+                  <Label>Databases</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {databases?.map((d: Database) => (
+                      <Badge
+                        key={d.name}
+                        variant={authCreateDatabases.includes(d.name) ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() => {
+                          setAuthCreateDatabases(prev =>
+                            prev.includes(d.name) ? prev.filter(x => x !== d.name) : [...prev, d.name]
+                          );
+                        }}
+                      >
+                        {d.name}
+                      </Badge>
+                    ))}
+                  </div>
+                  {authCreateDatabases.length === 0 && (
+                    <p className="text-xs text-destructive">Select at least one database</p>
+                  )}
+                </div>
+              )}
               {authCreateError && <div className="text-sm text-destructive">{authCreateError}</div>}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setAuthCreateOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={createAuthMutation.isPending}>Create</Button>
+              <Button type="submit" disabled={createAuthMutation.isPending || (authCreateRole === "dev" && authCreateDatabases.length === 0)}>Create</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -671,27 +738,61 @@ export default function Users() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>Role</Label>
-                <RadioGroup value={authEditRole} onValueChange={(val: any) => setAuthEditRole(val)} className="grid grid-cols-2 gap-3 pt-2">
+                <RadioGroup value={authEditRole} onValueChange={(val: any) => {
+                  setAuthEditRole(val);
+                  if (val !== "dev") setAuthEditDatabases([]);
+                }} className="grid grid-cols-3 gap-3 pt-2">
                   <RadioGroupItem value="admin" id="edit-role-admin">
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Admin</span>
                       <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
                     </div>
-                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Can manage users and databases</span>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Full access</span>
+                  </RadioGroupItem>
+                  <RadioGroupItem value="dev" id="edit-role-dev">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Dev</span>
+                      <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
+                    </div>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Assigned DBs only</span>
                   </RadioGroupItem>
                   <RadioGroupItem value="viewer" id="edit-role-viewer">
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Viewer</span>
                       <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
                     </div>
-                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Read-only access to dashboard</span>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Read-only</span>
                   </RadioGroupItem>
                 </RadioGroup>
               </div>
+              {authEditRole === "dev" && (
+                <div className="space-y-2">
+                  <Label>Databases</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {databases?.map((d: Database) => (
+                      <Badge
+                        key={d.name}
+                        variant={authEditDatabases.includes(d.name) ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() => {
+                          setAuthEditDatabases(prev =>
+                            prev.includes(d.name) ? prev.filter(x => x !== d.name) : [...prev, d.name]
+                          );
+                        }}
+                      >
+                        {d.name}
+                      </Badge>
+                    ))}
+                  </div>
+                  {authEditDatabases.length === 0 && (
+                    <p className="text-xs text-destructive">Select at least one database</p>
+                  )}
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setAuthEditOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={updateAuthMutation.isPending}>Save</Button>
+              <Button type="submit" disabled={updateAuthMutation.isPending || (authEditRole === "dev" && authEditDatabases.length === 0)}>Save</Button>
             </DialogFooter>
           </form>
         </DialogContent>
