@@ -88,6 +88,7 @@ export default function Users() {
   const [authResetOpen, setAuthResetOpen] = useState(false);
   const [authResetTarget, setAuthResetTarget] = useState<AuthUserListItem | null>(null);
   const [authResetPassword, setAuthResetPassword] = useState<string | null>(null);
+  const [authResetInput, setAuthResetInput] = useState("");
   const [authDeleteTarget, setAuthDeleteTarget] = useState<AuthUserListItem | null>(null);
   const [authDeleteConfirmText, setAuthDeleteConfirmText] = useState("");
 
@@ -197,7 +198,7 @@ export default function Users() {
   });
 
   const resetAuthMutation = useMutation({
-    mutationFn: (username: string) => resetAuthUserPassword(username),
+    mutationFn: (vars: { username: string; password?: string }) => resetAuthUserPassword(vars.username, vars.password),
     onSuccess: (password) => {
       toast.success("Password reset");
       setAuthResetPassword(password);
@@ -449,6 +450,7 @@ export default function Users() {
                               <Button variant="ghost" size="icon" onClick={() => {
                                 setAuthResetTarget(authUser);
                                 setAuthResetPassword(null);
+                                setAuthResetInput("");
                                 setAuthResetOpen(true);
                               }}>
                                 <Key className="h-4 w-4" />
@@ -715,10 +717,26 @@ export default function Users() {
             <DialogTitle>Reset Password — {authResetTarget?.username}</DialogTitle>
             <DialogDescription>
               {authResetPassword === null 
-                ? "Generate a new password? They will be logged out immediately." 
+                ? "Set a new password or leave blank to generate a highly secure random one. They will be logged out immediately." 
                 : "Save this password — it cannot be shown again."}
             </DialogDescription>
           </DialogHeader>
+          
+          {authResetPassword === null && (
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="auth-reset-password">New Password (Optional)</Label>
+                <Input
+                  id="auth-reset-password"
+                  placeholder="Leave blank to generate randomly"
+                  type="password"
+                  value={authResetInput}
+                  onChange={(e) => setAuthResetInput(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
           {authResetPassword !== null && (
             <div className="font-mono text-sm">
               <div className="text-xs text-muted-foreground">PASSWORD</div>
@@ -732,7 +750,12 @@ export default function Users() {
             {authResetPassword === null ? (
               <>
                 <Button variant="outline" onClick={() => setAuthResetOpen(false)}>Cancel</Button>
-                <Button disabled={resetAuthMutation.isPending} onClick={() => authResetTarget && resetAuthMutation.mutate(authResetTarget.username)}>
+                <Button disabled={resetAuthMutation.isPending} onClick={() => {
+                  if (!authResetTarget) return;
+                  const payload: { username: string; password?: string } = { username: authResetTarget.username };
+                  if (authResetInput) payload.password = authResetInput;
+                  resetAuthMutation.mutate(payload);
+                }}>
                   Reset Password
                 </Button>
               </>

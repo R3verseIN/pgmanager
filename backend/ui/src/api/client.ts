@@ -177,10 +177,12 @@ export async function fetchAuthUsers(): Promise<AuthUserListItem[]> {
   return AuthUserListResponseSchema.parse(data);
 }
 
-export async function resetAuthUserPassword(username: string): Promise<string> {
-  const data = await request<unknown>(`/auth/users/${encodeURIComponent(username)}/reset-password`, {
-    method: "POST",
-  });
+export async function resetAuthUserPassword(username: string, password?: string): Promise<string> {
+  const init: RequestInit = { method: "POST" };
+  if (password) {
+    init.body = JSON.stringify({ password });
+  }
+  const data = await request<unknown>(`/auth/users/${encodeURIComponent(username)}/reset-password`, init);
   const parsed = ResetPasswordResponseSchema.parse(data);
   return parsed.password;
 }

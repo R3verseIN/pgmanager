@@ -431,7 +431,19 @@ func (h *AuthHandler) ResetAuthUserPassword(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	newPassword := GeneratePassword(16)
+	var req struct {
+		Password string `json:"password"`
+	}
+	// It's optional, so we ignore errors if body is empty or invalid
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	var newPassword string
+	if req.Password != "" {
+		newPassword = req.Password
+	} else {
+		newPassword = GeneratePassword(16)
+	}
+
 	hash, err := auth.HashPassword(newPassword)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to hash password")

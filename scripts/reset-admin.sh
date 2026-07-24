@@ -27,7 +27,16 @@ if [ "$user_exists" = "0" ]; then
     exit 1
 fi
 
-NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '\n=/+' | head -c 24)
+echo ""
+echo "Enter new password (or leave blank to generate a random secure one): "
+read -s custom_password
+echo ""
+
+if [ -z "$custom_password" ]; then
+    NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '\n=/+' | head -c 24)
+else
+    NEW_PASSWORD="$custom_password"
+fi
 
 NEW_HASH=$(psql -v ON_ERROR_STOP=1 -U pgmanager -d pgmanager -t -A -c \
     "SELECT crypt('$NEW_PASSWORD', gen_salt('bf'));")
