@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
-import { Database, Users as UsersIcon, Settings, Loader2, ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
+import { Database, Users as UsersIcon, Loader2, ChevronLeft, ChevronRight, Menu, X, LogOut, User } from "lucide-react";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DatabasesTable from "./components/DatabasesTable";
@@ -13,7 +13,7 @@ import { cn } from "./lib/utils";
 function AppLayout() {
   const location = useLocation();
   const selectedKey = location.pathname === "/users" ? "users" : "databases";
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -111,21 +111,64 @@ function AppLayout() {
           </TooltipProvider>
         </nav>
 
-        <div className="border-t border-border p-2 space-y-1">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className={cn(
-                  "flex cursor-not-allowed items-center rounded-md px-3 py-2 text-sm font-medium text-muted-foreground opacity-50",
-                  isCollapsed ? "justify-center" : "gap-3"
-                )}>
-                  <Settings className="h-4 w-4 shrink-0" />
-                  {!isCollapsed && <span>Settings</span>}
+        <div className="border-t border-border p-2 space-y-2">
+          {/* User Profile / Logout */}
+          <div className={cn(
+            "flex items-center rounded-md p-2",
+            isCollapsed ? "justify-center" : "justify-between"
+          )}>
+            {!isCollapsed ? (
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+                  <User className="h-4 w-4" />
                 </div>
-              </TooltipTrigger>
-              <TooltipContent side="right">Not implemented yet</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+                <div className="flex flex-col overflow-hidden">
+                  <span className="truncate text-sm font-medium text-foreground">{user?.username}</span>
+                  <span className="truncate text-xs text-muted-foreground capitalize">{user?.role}</span>
+                </div>
+              </div>
+            ) : (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+                      <User className="h-4 w-4" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p className="font-medium">{user?.username}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
+            {!isCollapsed && (
+              <button 
+                onClick={logout} 
+                className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+                title="Logout"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          
+          {isCollapsed && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button 
+                    onClick={logout} 
+                    className="flex w-full items-center justify-center rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Logout</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
 
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
@@ -186,10 +229,24 @@ function AppLayout() {
                 </Link>
               )}
             </nav>
-            <div className="border-t border-border pt-4">
-              <div className="flex cursor-not-allowed items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground opacity-50">
-                <Settings className="h-4 w-4 shrink-0" />
-                Settings
+            <div className="border-t border-border pt-4 mt-auto">
+              <div className="flex items-center justify-between rounded-md p-2 bg-accent/30">
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+                    <User className="h-4 w-4" />
+                  </div>
+                  <div className="flex flex-col overflow-hidden">
+                    <span className="truncate text-sm font-medium text-foreground">{user?.username}</span>
+                    <span className="truncate text-xs text-muted-foreground capitalize">{user?.role}</span>
+                  </div>
+                </div>
+                <button 
+                  onClick={logout} 
+                  className="rounded-md p-2 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors shrink-0"
+                  title="Logout"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
               </div>
             </div>
           </div>
