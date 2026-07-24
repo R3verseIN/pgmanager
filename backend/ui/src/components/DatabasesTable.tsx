@@ -83,16 +83,28 @@ export default function DatabasesTable() {
     createMutation.mutate(result.data.name);
   }
 
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredDatabases = databases?.filter((db: Database) =>
+    db.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-3">
           {isAdmin && (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Create Database
             </Button>
           )}
+          <Input
+            placeholder="Search databases..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-48 sm:w-64"
+          />
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -131,17 +143,17 @@ export default function DatabasesTable() {
                   Loading...
                 </TableCell>
               </TableRow>
-            ) : !databases?.length ? (
+            ) : !filteredDatabases?.length ? (
               <TableRow>
                 <TableCell
                   colSpan={isAdmin ? 2 : 1}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  No databases found.
+                  {searchQuery ? "No matching databases found." : "No databases found."}
                 </TableCell>
               </TableRow>
             ) : (
-              databases.map((db: Database, i: number) => (
+              filteredDatabases.map((db: Database, i: number) => (
                 <TableRow 
                   key={db.name} 
                   className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"

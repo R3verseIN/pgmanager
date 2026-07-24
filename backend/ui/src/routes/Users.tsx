@@ -55,6 +55,88 @@ import {
 } from "../components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 
+function DbMultiSelect({
+  databases,
+  selected,
+  onChange,
+}: {
+  databases: Database[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+}) {
+  const [search, setSearch] = useState("");
+
+  const filtered = databases.filter((d) =>
+    d.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const allSelected = databases.length > 0 && selected.length === databases.length;
+
+  const toggleAll = () => {
+    if (allSelected) {
+      onChange([]);
+    } else {
+      onChange(databases.map((d) => d.name));
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label>
+          Databases ({selected.length} selected)
+        </Label>
+        {databases.length > 0 && (
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="text-xs text-primary hover:underline font-medium"
+          >
+            {allSelected ? "Deselect All" : "Select All"}
+          </button>
+        )}
+      </div>
+
+      {databases.length > 5 && (
+        <Input
+          placeholder="Search database..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-8 text-xs"
+        />
+      )}
+
+      <div className="max-h-40 overflow-y-auto border border-border rounded-md p-2 flex flex-wrap gap-1.5 bg-muted/20">
+        {filtered.length === 0 ? (
+          <span className="text-xs text-muted-foreground p-1">
+            {search ? "No matching databases" : "No databases available"}
+          </span>
+        ) : (
+          filtered.map((d) => {
+            const isSelected = selected.includes(d.name);
+            return (
+              <Badge
+                key={d.name}
+                variant={isSelected ? "default" : "outline"}
+                className="cursor-pointer text-xs select-none transition-colors"
+                onClick={() => {
+                  if (isSelected) {
+                    onChange(selected.filter((x) => x !== d.name));
+                  } else {
+                    onChange([...selected, d.name]);
+                  }
+                }}
+              >
+                {d.name}
+              </Badge>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Users() {
   const queryClient = useQueryClient();
 
@@ -537,28 +619,11 @@ export default function Users() {
                   ))}
                 </RadioGroup>
               </div>
-              <div className="space-y-2">
-                <Label>Databases</Label>
-                <div className="flex flex-wrap gap-2">
-                  {databases?.map((d: Database) => (
-                    <Badge
-                      key={d.name}
-                      variant={formDbs.includes(d.name) ? "default" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => {
-                        setFormDbs(prev =>
-                          prev.includes(d.name) ? prev.filter(x => x !== d.name) : [...prev, d.name]
-                        );
-                      }}
-                    >
-                      {d.name}
-                    </Badge>
-                  ))}
-                </div>
-                {formDbs.length === 0 && (
-                  <p className="text-xs text-destructive">Select at least one database</p>
-                )}
-              </div>
+              <DbMultiSelect
+                databases={databases || []}
+                selected={formDbs}
+                onChange={setFormDbs}
+              />
               {formError && <div className="text-sm text-destructive">{formError}</div>}
             </div>
             <DialogFooter>
@@ -717,28 +782,11 @@ export default function Users() {
                 </RadioGroup>
               </div>
               {authCreateRole === "dev" && (
-                <div className="space-y-2">
-                  <Label>Databases</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {databases?.map((d: Database) => (
-                      <Badge
-                        key={d.name}
-                        variant={authCreateDatabases.includes(d.name) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => {
-                          setAuthCreateDatabases(prev =>
-                            prev.includes(d.name) ? prev.filter(x => x !== d.name) : [...prev, d.name]
-                          );
-                        }}
-                      >
-                        {d.name}
-                      </Badge>
-                    ))}
-                  </div>
-                  {authCreateDatabases.length === 0 && (
-                    <p className="text-xs text-destructive">Select at least one database</p>
-                  )}
-                </div>
+                <DbMultiSelect
+                  databases={databases || []}
+                  selected={authCreateDatabases}
+                  onChange={setAuthCreateDatabases}
+                />
               )}
               {authCreateError && <div className="text-sm text-destructive">{authCreateError}</div>}
             </div>
@@ -788,28 +836,11 @@ export default function Users() {
                 </RadioGroup>
               </div>
               {authEditRole === "dev" && (
-                <div className="space-y-2">
-                  <Label>Databases</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {databases?.map((d: Database) => (
-                      <Badge
-                        key={d.name}
-                        variant={authEditDatabases.includes(d.name) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => {
-                          setAuthEditDatabases(prev =>
-                            prev.includes(d.name) ? prev.filter(x => x !== d.name) : [...prev, d.name]
-                          );
-                        }}
-                      >
-                        {d.name}
-                      </Badge>
-                    ))}
-                  </div>
-                  {authEditDatabases.length === 0 && (
-                    <p className="text-xs text-destructive">Select at least one database</p>
-                  )}
-                </div>
+                <DbMultiSelect
+                  databases={databases || []}
+                  selected={authEditDatabases}
+                  onChange={setAuthEditDatabases}
+                />
               )}
             </div>
             <DialogFooter>
