@@ -11,12 +11,22 @@ if [ -z "$custom_password" ]; then
     NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '\n=/+' | head -c 24)
 else
     NEW_PASSWORD="$custom_password"
+    pwlen=${#NEW_PASSWORD}
+    if [ "$pwlen" -lt 8 ]; then
+        echo "Error: Password must be at least 8 characters."
+        exit 1
+    fi
+    if [ "$pwlen" -gt 72 ]; then
+        echo "Error: Password must be at most 72 characters (bcrypt limit)."
+        exit 1
+    fi
 fi
+
 echo "$NEW_PASSWORD" > "$PASSWORD_FILE"
 chmod 600 "$PASSWORD_FILE"
 
 psql -v ON_ERROR_STOP=1 -U pgmanager -d pgmanager <<-EOSQL
-    ALTER USER pgmanager PASSWORD '${NEW_PASSWORD}';
+    ALTER USER pgmanager PASSWORD \$\$${NEW_PASSWORD}\$\$;
 EOSQL
 
 echo "========================================="

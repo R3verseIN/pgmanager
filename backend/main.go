@@ -139,20 +139,20 @@ func main() {
 			h.CreateUser(w, r)
 			return
 		}
-		if method == "PUT" && strings.HasPrefix(path, "/api/users/") {
-			h.UpdateUser(w, r)
-			return
-		}
-		if method == "DELETE" && strings.HasPrefix(path, "/api/users/") {
-			h.DeleteUser(w, r)
-			return
-		}
 		if method == "POST" && strings.HasSuffix(path, "/databases") {
 			h.AddUserDatabase(w, r)
 			return
 		}
 		if method == "DELETE" && strings.Contains(path, "/databases/") {
 			h.RemoveUserDatabase(w, r)
+			return
+		}
+		if method == "PUT" && strings.HasPrefix(path, "/api/users/") {
+			h.UpdateUser(w, r)
+			return
+		}
+		if method == "DELETE" && strings.HasPrefix(path, "/api/users/") {
+			h.DeleteUser(w, r)
 			return
 		}
 

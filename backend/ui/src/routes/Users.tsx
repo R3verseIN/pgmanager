@@ -28,6 +28,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
+
 import {
   Select,
   SelectContent,
@@ -491,13 +492,15 @@ export default function Users() {
               </div>
               <div className="space-y-2">
                 <Label>Access Level</Label>
-                <RadioGroup value={formAccess} onValueChange={(val: any) => setFormAccess(val)}>
+                <RadioGroup value={formAccess} onValueChange={(val: any) => setFormAccess(val)} className="grid grid-cols-2 gap-3 pt-2">
                   {(["read", "write", "ddl", "full"] as const).map((level) => (
-                    <div key={level} className="flex items-center space-x-2">
-                      <RadioGroupItem value={level} id={`access-${level}`} />
-                      <Label htmlFor={`access-${level}`} className="uppercase">{level}</Label>
-                      <span className="text-xs text-muted-foreground">— {accessLabels[level]}</span>
-                    </div>
+                    <RadioGroupItem key={level} value={level} id={`access-${level}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">{level}</span>
+                        <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
+                      </div>
+                      <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">{accessLabels[level]}</span>
+                    </RadioGroupItem>
                   ))}
                 </RadioGroup>
               </div>
@@ -561,12 +564,15 @@ export default function Users() {
               </div>
               <div className="space-y-2">
                 <Label>Access Level</Label>
-                <RadioGroup value={editAccess} onValueChange={(val: any) => setEditAccess(val)}>
+                <RadioGroup value={editAccess} onValueChange={(val: any) => setEditAccess(val)} className="grid grid-cols-2 gap-3 pt-2">
                   {(["read", "write", "ddl", "full"] as const).map((level) => (
-                    <div key={level} className="flex items-center space-x-2">
-                      <RadioGroupItem value={level} id={`edit-access-${level}`} />
-                      <Label htmlFor={`edit-access-${level}`} className="uppercase">{level}</Label>
-                    </div>
+                    <RadioGroupItem key={level} value={level} id={`edit-access-${level}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">{level}</span>
+                        <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
+                      </div>
+                      <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">{accessLabels[level]}</span>
+                    </RadioGroupItem>
                   ))}
                 </RadioGroup>
               </div>
@@ -628,17 +634,21 @@ export default function Users() {
               </div>
               <div className="space-y-2">
                 <Label>Role</Label>
-                <RadioGroup value={authCreateRole} onValueChange={(val: any) => setAuthCreateRole(val)}>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="admin" id="role-admin" />
-                    <Label htmlFor="role-admin">Admin</Label>
-                    <span className="text-xs text-muted-foreground">— full access</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="viewer" id="role-viewer" />
-                    <Label htmlFor="role-viewer">Viewer</Label>
-                    <span className="text-xs text-muted-foreground">— read-only access</span>
-                  </div>
+                <RadioGroup value={authCreateRole} onValueChange={(val: any) => setAuthCreateRole(val)} className="grid grid-cols-2 gap-3 pt-2">
+                  <RadioGroupItem value="admin" id="role-admin">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Admin</span>
+                      <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
+                    </div>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Can manage users and databases</span>
+                  </RadioGroupItem>
+                  <RadioGroupItem value="viewer" id="role-viewer">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Viewer</span>
+                      <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
+                    </div>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Read-only access to dashboard</span>
+                  </RadioGroupItem>
                 </RadioGroup>
               </div>
               {authCreateError && <div className="text-sm text-destructive">{authCreateError}</div>}
@@ -661,15 +671,21 @@ export default function Users() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>Role</Label>
-                <RadioGroup value={authEditRole} onValueChange={(val: any) => setAuthEditRole(val)}>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="admin" id="edit-role-admin" />
-                    <Label htmlFor="edit-role-admin">Admin</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="viewer" id="edit-role-viewer" />
-                    <Label htmlFor="edit-role-viewer">Viewer</Label>
-                  </div>
+                <RadioGroup value={authEditRole} onValueChange={(val: any) => setAuthEditRole(val)} className="grid grid-cols-2 gap-3 pt-2">
+                  <RadioGroupItem value="admin" id="edit-role-admin">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Admin</span>
+                      <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
+                    </div>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Can manage users and databases</span>
+                  </RadioGroupItem>
+                  <RadioGroupItem value="viewer" id="edit-role-viewer">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">Viewer</span>
+                      <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
+                    </div>
+                    <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">Read-only access to dashboard</span>
+                  </RadioGroupItem>
                 </RadioGroup>
               </div>
             </div>

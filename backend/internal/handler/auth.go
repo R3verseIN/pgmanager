@@ -84,6 +84,10 @@ func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
+	if len(req.Password) > 72 {
+		writeError(w, http.StatusBadRequest, "password must be at most 72 characters")
+		return
+	}
 
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
@@ -187,6 +191,10 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "new password must be at least 8 characters")
 		return
 	}
+	if len(req.NewPassword) > 72 {
+		writeError(w, http.StatusBadRequest, "new password must be at most 72 characters")
+		return
+	}
 
 	var currentHash string
 	err := h.pool.QueryRow(r.Context(),
@@ -244,6 +252,10 @@ func (h *AuthHandler) CreateAuthUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
+	if len(req.Password) > 72 {
+		writeError(w, http.StatusBadRequest, "password must be at most 72 characters")
+		return
+	}
 	if req.Role != "admin" && req.Role != "viewer" {
 		writeError(w, http.StatusBadRequest, "role must be admin or viewer")
 		return
@@ -288,6 +300,12 @@ func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	currentUser := auth.GetUserFromContext(r.Context())
+	if currentUser != nil && currentUser.Username == username && currentUser.Role == "admin" {
+		writeError(w, http.StatusBadRequest, "cannot change your own role")
+		return
+	}
+
 	var req updateAuthUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -311,16 +329,20 @@ func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if currentRole == "admin" && req.Role == "viewer" {
-		var adminCount int
-		err = h.pool.QueryRow(r.Context(), "SELECT COUNT(*) FROM auth_users WHERE role = 'admin'").Scan(&adminCount)
+		ct, err := h.pool.Exec(r.Context(),
+			"UPDATE auth_users SET role = $1, updated_at = NOW() WHERE id = $2 AND (SELECT COUNT(*) FROM auth_users WHERE role = 'admin') > 1",
+			req.Role, id,
+		)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to check admin count")
+			writeError(w, http.StatusInternalServerError, "failed to update user")
 			return
 		}
-		if adminCount <= 1 {
+		if ct.RowsAffected() == 0 {
 			writeError(w, http.StatusBadRequest, "cannot change role of the last admin")
 			return
 		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+		return
 	}
 
 	_, err = h.pool.Exec(r.Context(),
@@ -342,6 +364,12 @@ func (h *AuthHandler) DeleteAuthUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	currentUser := auth.GetUserFromContext(r.Context())
+	if currentUser != nil && currentUser.Username == username {
+		writeError(w, http.StatusBadRequest, "cannot delete your own account")
+		return
+	}
+
 	var id int
 	var role string
 	err := h.pool.QueryRow(r.Context(),
@@ -354,16 +382,21 @@ func (h *AuthHandler) DeleteAuthUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if role == "admin" {
-		var adminCount int
-		err = h.pool.QueryRow(r.Context(), "SELECT COUNT(*) FROM auth_users WHERE role = 'admin'").Scan(&adminCount)
+		ct, err := h.pool.Exec(r.Context(),
+			"DELETE FROM auth_users WHERE id = $1 AND role = 'admin' AND (SELECT COUNT(*) FROM auth_users WHERE role = 'admin') > 1",
+			id,
+		)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to check admin count")
+			writeError(w, http.StatusInternalServerError, "failed to delete user")
 			return
 		}
-		if adminCount <= 1 {
+		if ct.RowsAffected() == 0 {
 			writeError(w, http.StatusBadRequest, "cannot delete the last admin")
 			return
 		}
+		auth.DeleteUserSessions(r.Context(), h.pool, id)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+		return
 	}
 
 	auth.DeleteUserSessions(r.Context(), h.pool, id)
@@ -439,6 +472,14 @@ func (h *AuthHandler) ResetAuthUserPassword(w http.ResponseWriter, r *http.Reque
 
 	var newPassword string
 	if req.Password != "" {
+		if len(req.Password) < 8 {
+			writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
+			return
+		}
+		if len(req.Password) > 72 {
+			writeError(w, http.StatusBadRequest, "password must be at most 72 characters")
+			return
+		}
 		newPassword = req.Password
 	} else {
 		newPassword = GeneratePassword(16)

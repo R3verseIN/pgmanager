@@ -2,7 +2,7 @@
 set -e
 
 echo "========================================="
-echo "  pgmanager - Reset Admin Password"
+echo "  pgmanager - Reset Auth User Password"
 echo "========================================="
 echo ""
 
@@ -20,7 +20,7 @@ if [ "$target_username" = "q" ] || [ -z "$target_username" ]; then
 fi
 
 user_exists=$(psql -v ON_ERROR_STOP=1 -U pgmanager -d pgmanager -t -A -c \
-    "SELECT COUNT(*) FROM auth_users WHERE username = '$target_username';")
+    "SELECT COUNT(*) FROM auth_users WHERE username = \$\$${target_username}\$\$;")
 
 if [ "$user_exists" = "0" ]; then
     echo "Error: User '$target_username' not found."
@@ -36,18 +36,29 @@ if [ -z "$custom_password" ]; then
     NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '\n=/+' | head -c 24)
 else
     NEW_PASSWORD="$custom_password"
+    pwlen=${#NEW_PASSWORD}
+    if [ "$pwlen" -lt 8 ]; then
+        echo "Error: Password must be at least 8 characters."
+        exit 1
+    fi
+    if [ "$pwlen" -gt 72 ]; then
+        echo "Error: Password must be at most 72 characters (bcrypt limit)."
+        exit 1
+    fi
 fi
 
+psql -v ON_ERROR_STOP=1 -U pgmanager -d pgmanager -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" > /dev/null
+
 NEW_HASH=$(psql -v ON_ERROR_STOP=1 -U pgmanager -d pgmanager -t -A -c \
-    "SELECT crypt('$NEW_PASSWORD', gen_salt('bf'));")
+    "SELECT crypt(\$\$${NEW_PASSWORD}\$\$, gen_salt('bf'));")
 
 psql -v ON_ERROR_STOP=1 -U pgmanager -d pgmanager <<-EOSQL
     UPDATE auth_users
-    SET password_hash = '$NEW_HASH', updated_at = NOW()
-    WHERE username = '$target_username';
+    SET password_hash = \$\$${NEW_HASH}\$\$, updated_at = NOW()
+    WHERE username = \$\$${target_username}\$\$;
 
     DELETE FROM sessions
-    WHERE user_id = (SELECT id FROM auth_users WHERE username = '$target_username');
+    WHERE user_id = (SELECT id FROM auth_users WHERE username = \$\$${target_username}\$\$);
 EOSQL
 
 echo ""

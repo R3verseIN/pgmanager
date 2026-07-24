@@ -111,6 +111,10 @@ func GetUserFromContext(ctx context.Context) *SessionUser {
 	return user
 }
 
+func WithUser(ctx context.Context, user *SessionUser) context.Context {
+	return context.WithValue(ctx, userContextKey, user)
+}
+
 func ReadSessionTokenFromResponse(resp *http.Response) string {
 	for _, cookie := range resp.Cookies() {
 		if cookie.Name == "session_id" {
