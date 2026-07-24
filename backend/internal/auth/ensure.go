@@ -16,7 +16,7 @@ EXCEPTION WHEN duplicate_object THEN
 END
 $$;
 
-GRANT CONNECT ON DATABASE postgres TO pgbouncer_auth;
+GRANT CONNECT ON DATABASE pgmanager TO pgbouncer_auth;
 GRANT USAGE ON SCHEMA public TO pgbouncer_auth;
 
 CREATE OR REPLACE FUNCTION public.pgbouncer_get_user(

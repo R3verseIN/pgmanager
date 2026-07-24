@@ -19,6 +19,7 @@ class ApiError extends Error {
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE_URL}${url}`, {
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     ...options,
   });
 
@@ -108,6 +109,63 @@ export async function removeUserDatabase(username: string, database: string): Pr
 
 export async function deleteUser(username: string): Promise<void> {
   await request<void>(`/users/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchMe(): Promise<{ username: string; role: "admin" | "viewer" }> {
+  const data = await request<unknown>("/auth/me");
+  return data as { username: string; role: "admin" | "viewer" };
+}
+
+export async function login(username: string, password: string): Promise<void> {
+  await request<unknown>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export async function logout(): Promise<void> {
+  await request<unknown>("/auth/logout", {
+    method: "POST",
+  });
+}
+
+export async function setup(username: string, password: string): Promise<void> {
+  await request<unknown>("/auth/setup", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export async function fetchSetupCheck(): Promise<boolean> {
+  const data = await request<{ needsSetup: boolean }>("/auth/setup-check");
+  return data.needsSetup;
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await request<unknown>("/auth/password", {
+    method: "PUT",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
+export async function createAuthUser(username: string, password: string, role: "admin" | "viewer"): Promise<void> {
+  await request<unknown>("/auth/users", {
+    method: "POST",
+    body: JSON.stringify({ username, password, role }),
+  });
+}
+
+export async function updateAuthUser(username: string, role: "admin" | "viewer"): Promise<void> {
+  await request<unknown>(`/auth/users/${encodeURIComponent(username)}`, {
+    method: "PUT",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function deleteAuthUser(username: string): Promise<void> {
+  await request<void>(`/auth/users/${encodeURIComponent(username)}`, {
     method: "DELETE",
   });
 }

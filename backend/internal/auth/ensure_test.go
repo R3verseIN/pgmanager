@@ -25,7 +25,7 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 	}
 	dbname := os.Getenv("PGDATABASE")
 	if dbname == "" {
-		dbname = "postgres"
+		dbname = "pgmanager"
 	}
 
 	url := "postgres://" + user + ":" + user + "@" + host + ":" + port + "/" + dbname + "?sslmode=disable"

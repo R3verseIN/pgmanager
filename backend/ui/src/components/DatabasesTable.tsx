@@ -5,6 +5,7 @@ import { PlusOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined, EyeInvisible
 import { fetchDatabases, createDatabase, deleteDatabase } from "../api/client";
 import { CreateDatabaseSchema } from "../lib/schemas";
 import type { Database } from "../lib/schemas";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function DatabasesTable() {
   const [showSystem, setShowSystem] = useState(false);
@@ -14,6 +15,7 @@ export default function DatabasesTable() {
 
   const queryClient = useQueryClient();
   const { message } = App.useApp();
+  const { isAdmin } = useAuth();
 
   const { data: databases, isLoading, refetch } = useQuery({
     queryKey: ["databases", showSystem],
@@ -73,28 +75,34 @@ export default function DatabasesTable() {
       key: "name",
       sorter: (a: Database, b: Database) => a.name.localeCompare(b.name),
     },
-    {
-      title: "",
-      key: "actions",
-      width: 48,
-      render: (_: unknown, record: Database): ReactNode => (
-        <Button
-          type="text"
-          danger
-          icon={<DeleteOutlined />}
-          disabled={record.protected}
-          onClick={() => handleDelete(record.name)}
-        />
-      ),
-    },
+    ...(isAdmin
+      ? [
+          {
+            title: "",
+            key: "actions",
+            width: 48,
+            render: (_: unknown, record: Database): ReactNode => (
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                disabled={record.protected}
+                onClick={() => handleDelete(record.name)}
+              />
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
     <div>
       <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-          Create Database
-        </Button>
+        {isAdmin && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            Create Database
+          </Button>
+        )}
         <Button
           icon={showSystem ? <EyeInvisibleOutlined /> : <EyeOutlined />}
           onClick={() => setShowSystem((prev) => !prev)}

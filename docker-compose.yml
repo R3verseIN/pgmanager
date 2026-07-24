@@ -10,7 +10,7 @@ services:
       - ./scripts:/scripts:ro
       - ./init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "pgmanager", "-d", "postgres"]
+      test: ["CMD", "pg_isready", "-U", "pgmanager", "-d", "pgmanager"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,7 +24,7 @@ services:
       PGHOST: db
       PGPORT: "5432"
       PGUSER: pgmanager
-      PGDATABASE: postgres
+      PGDATABASE: pgmanager
       PGSSLMODE: disable
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
@@ -37,7 +37,7 @@ services:
     ports:
       - "5432:6432"
     environment:
-      DATABASE_URL: postgres://pgmanager:__PASSWORD__@db:5432/postgres?sslmode=disable
+      DATABASE_URL: postgres://pgmanager:__PASSWORD__@db:5432/pgmanager?sslmode=disable
     volumes:
       - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - pgdata:/var/lib/postgresql/data:ro

@@ -44,6 +44,7 @@ func main() {
 	}
 
 	h := handler.New(pool)
+	ah := handler.NewAuthHandler(pool)
 
 	if err := h.InitUserSchema(ctx); err != nil {
 		log.Printf("warning: failed to init user schema: %v", err)
@@ -53,7 +54,6 @@ func main() {
 		log.Printf("warning: failed to ensure pgbouncer auth: %v", err)
 	}
 
-	// Periodic healthcheck for pgbouncer auth
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
@@ -66,16 +66,90 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/databases", h.ListDatabases)
-	mux.HandleFunc("POST /api/databases", h.CreateDatabase)
-	mux.HandleFunc("DELETE /api/databases/{name}", h.DeleteDatabase)
+	// Auth routes (no auth required)
+	mux.HandleFunc("GET /api/auth/setup-check", ah.SetupCheck)
+	mux.HandleFunc("POST /api/auth/setup", ah.Setup)
+	mux.HandleFunc("POST /api/auth/login", ah.Login)
 
-	mux.HandleFunc("GET /api/users", h.ListUsers)
-	mux.HandleFunc("POST /api/users", h.CreateUser)
-	mux.HandleFunc("PUT /api/users/{name}", h.UpdateUser)
-	mux.HandleFunc("DELETE /api/users/{name}", h.DeleteUser)
-	mux.HandleFunc("POST /api/users/{name}/databases", h.AddUserDatabase)
-	mux.HandleFunc("DELETE /api/users/{name}/databases/{db}", h.RemoveUserDatabase)
+	// API routes with auth
+	mux.Handle("/api/", auth.AuthMiddleware(pool)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		method := r.Method
+
+		// Auth routes (any role)
+		if method == "POST" && path == "/api/auth/logout" {
+			ah.Logout(w, r)
+			return
+		}
+		if method == "GET" && path == "/api/auth/me" {
+			ah.GetMe(w, r)
+			return
+		}
+		if method == "PUT" && path == "/api/auth/password" {
+			ah.ChangePassword(w, r)
+			return
+		}
+
+		// Read-only routes (any role)
+		if method == "GET" && path == "/api/databases" {
+			h.ListDatabases(w, r)
+			return
+		}
+		if method == "GET" && path == "/api/users" {
+			h.ListUsers(w, r)
+			return
+		}
+
+		// Admin-only routes
+		user := auth.GetUserFromContext(r.Context())
+		if user == nil || user.Role != "admin" {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
+
+		if method == "POST" && path == "/api/auth/users" {
+			ah.CreateAuthUser(w, r)
+			return
+		}
+		if method == "PUT" && strings.HasPrefix(path, "/api/auth/users/") {
+			ah.UpdateAuthUser(w, r)
+			return
+		}
+		if method == "DELETE" && strings.HasPrefix(path, "/api/auth/users/") {
+			ah.DeleteAuthUser(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/databases" {
+			h.CreateDatabase(w, r)
+			return
+		}
+		if method == "DELETE" && strings.HasPrefix(path, "/api/databases/") {
+			h.DeleteDatabase(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/users" {
+			h.CreateUser(w, r)
+			return
+		}
+		if method == "PUT" && strings.HasPrefix(path, "/api/users/") {
+			h.UpdateUser(w, r)
+			return
+		}
+		if method == "DELETE" && strings.HasPrefix(path, "/api/users/") {
+			h.DeleteUser(w, r)
+			return
+		}
+		if method == "POST" && strings.HasSuffix(path, "/databases") {
+			h.AddUserDatabase(w, r)
+			return
+		}
+		if method == "DELETE" && strings.Contains(path, "/databases/") {
+			h.RemoveUserDatabase(w, r)
+			return
+		}
+
+		http.NotFound(w, r)
+	})))
 
 	subFS, err := fs.Sub(uiFS, "ui/dist")
 	if err != nil {
@@ -138,7 +212,7 @@ func buildDatabaseURL() string {
 
 	dbname := os.Getenv("PGDATABASE")
 	if dbname == "" {
-		dbname = "postgres"
+		dbname = "pgmanager"
 	}
 
 	sslmode := os.Getenv("PGSSLMODE")

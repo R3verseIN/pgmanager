@@ -15,6 +15,10 @@ CURRENT_PASSWORD=$(cat "$PASSWORD_FILE")
 psql -v ON_ERROR_STOP=1 -U pgmanager -d postgres <<-EOSQL
     ALTER USER pgmanager PASSWORD '${CURRENT_PASSWORD}';
 
+    SELECT 'CREATE DATABASE pgmanager' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'pgmanager')\gexec
+EOSQL
+
+psql -v ON_ERROR_STOP=1 -U pgmanager -d pgmanager <<-EOSQL
     DO \$\$
     BEGIN
         CREATE USER pgbouncer_auth WITH PASSWORD 'pgbouncer_auth_password';
@@ -23,7 +27,7 @@ psql -v ON_ERROR_STOP=1 -U pgmanager -d postgres <<-EOSQL
     END
     \$\$;
 
-    GRANT CONNECT ON DATABASE postgres TO pgbouncer_auth;
+    GRANT CONNECT ON DATABASE pgmanager TO pgbouncer_auth;
     GRANT USAGE ON SCHEMA public TO pgbouncer_auth;
 
     CREATE OR REPLACE FUNCTION public.pgbouncer_get_user(
@@ -55,4 +59,4 @@ psql -v ON_ERROR_STOP=1 -U pgmanager -d postgres <<-EOSQL
     GRANT EXECUTE ON FUNCTION public.pgbouncer_get_user(TEXT) TO pgbouncer_auth;
 EOSQL
 
-echo "pgmanager password and pgbouncer_auth user created successfully"
+echo "pgmanager database and pgbouncer_auth user created successfully"

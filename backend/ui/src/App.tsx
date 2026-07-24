@@ -1,12 +1,16 @@
-import { ConfigProvider, theme, App as AntApp, Layout, Menu, Tooltip } from "antd";
+import { ConfigProvider, theme, App as AntApp, Layout, Menu, Tooltip, Spin } from "antd";
 import { DatabaseOutlined, TeamOutlined, SettingOutlined } from "@ant-design/icons";
-import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DatabasesTable from "./components/DatabasesTable";
 import Users from "./routes/Users";
+import Login from "./routes/Login";
+import Setup from "./routes/Setup";
 
 function AppLayout() {
   const location = useLocation();
   const selectedKey = location.pathname === "/users" ? "users" : "databases";
+  const { user } = useAuth();
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -85,11 +89,15 @@ function AppLayout() {
                 icon: <DatabaseOutlined style={{ fontSize: 16 }} />,
                 label: <Link to="/">Databases</Link>,
               },
-              {
-                key: "users",
-                icon: <TeamOutlined style={{ fontSize: 16 }} />,
-                label: <Link to="/users">Users</Link>,
-              },
+              ...(user?.role === "admin"
+                ? [
+                    {
+                      key: "users",
+                      icon: <TeamOutlined style={{ fontSize: 16 }} />,
+                      label: <Link to="/users">Users</Link>,
+                    },
+                  ]
+                : []),
             ]}
           />
         </div>
@@ -122,11 +130,43 @@ function AppLayout() {
       <Layout.Content style={{ padding: 24 }}>
         <Routes>
           <Route path="/" element={<DatabasesTable />} />
-          <Route path="/users" element={<Users />} />
+          <Route path="/users" element={user?.role === "admin" ? <Users /> : <Navigate to="/" />} />
         </Routes>
       </Layout.Content>
     </Layout>
   );
+}
+
+function AuthenticatedLayout() {
+  const { user, loading, needsSetup } = useAuth();
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#0a0a0a",
+        }}
+      >
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/setup" element={needsSetup ? <Setup /> : <Navigate to="/login" />} />
+        <Route path="/login" element={needsSetup ? <Navigate to="/setup" /> : <Login />} />
+        <Route path="*" element={needsSetup ? <Navigate to="/setup" /> : <Login />} />
+      </Routes>
+    );
+  }
+
+  return <AppLayout />;
 }
 
 export default function App() {
@@ -160,7 +200,9 @@ export default function App() {
     >
       <AntApp>
         <BrowserRouter>
-          <AppLayout />
+          <AuthProvider>
+            <AuthenticatedLayout />
+          </AuthProvider>
         </BrowserRouter>
       </AntApp>
     </ConfigProvider>

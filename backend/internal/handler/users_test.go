@@ -15,7 +15,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://pgmanager:pgmanager@localhost:5433/postgres?sslmode=disable"
+		dsn = "postgres://pgmanager:pgmanager@localhost:5433/pgmanager?sslmode=disable"
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
@@ -35,7 +35,7 @@ func TestListUsers_Grouping(t *testing.T) {
 	// cleanup
 	pool.Exec(ctx, "DROP OWNED BY testgroupuser CASCADE")
 	pool.Exec(ctx, "DROP ROLE IF EXISTS testgroupuser")
-	pool.Exec(ctx, "DELETE FROM pgmanager.managed_users WHERE username = 'testgroupuser'")
+	pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testgroupuser'")
 	pool.Exec(ctx, "DROP DATABASE IF EXISTS testgroupdb1")
 	pool.Exec(ctx, "DROP DATABASE IF EXISTS testgroupdb2")
 	pool.Exec(ctx, "CREATE DATABASE testgroupdb1")
@@ -43,7 +43,7 @@ func TestListUsers_Grouping(t *testing.T) {
 	t.Cleanup(func() {
 		pool.Exec(ctx, "DROP OWNED BY testgroupuser CASCADE")
 		pool.Exec(ctx, "DROP ROLE IF EXISTS testgroupuser")
-		pool.Exec(ctx, "DELETE FROM pgmanager.managed_users WHERE username = 'testgroupuser'")
+		pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testgroupuser'")
 		pool.Exec(ctx, "DROP DATABASE testgroupdb1 WITH (FORCE)")
 		pool.Exec(ctx, "DROP DATABASE testgroupdb2 WITH (FORCE)")
 	})
@@ -55,11 +55,11 @@ func TestListUsers_Grouping(t *testing.T) {
 	}
 
 	// insert two managed_users rows for same user, same access
-	_, err = pool.Exec(ctx, "INSERT INTO pgmanager.managed_users (username, database_name, access) VALUES ('testgroupuser', 'testgroupdb1', 'read')")
+	_, err = pool.Exec(ctx, "INSERT INTO managed_users (username, database_name, access) VALUES ('testgroupuser', 'testgroupdb1', 'read')")
 	if err != nil {
 		t.Fatalf("insert 1: %v", err)
 	}
-	_, err = pool.Exec(ctx, "INSERT INTO pgmanager.managed_users (username, database_name, access) VALUES ('testgroupuser', 'testgroupdb2', 'read')")
+	_, err = pool.Exec(ctx, "INSERT INTO managed_users (username, database_name, access) VALUES ('testgroupuser', 'testgroupdb2', 'read')")
 	if err != nil {
 		t.Fatalf("insert 2: %v", err)
 	}

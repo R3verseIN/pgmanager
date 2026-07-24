@@ -15,7 +15,7 @@ import (
 func TestPgBouncer_BlocksPgmanagerUser(t *testing.T) {
 	dsn := os.Getenv("PGBOUNCER_URL")
 	if dsn == "" {
-		dsn = "postgres://pgmanager:pgmanager@localhost:5432/postgres?sslmode=disable"
+		dsn = "postgres://pgmanager:pgmanager@localhost:5432/pgmanager?sslmode=disable"
 	}
 
 	ctx := context.Background()
@@ -33,11 +33,11 @@ func TestPgBouncer_AllowsCreatedUser(t *testing.T) {
 	// cleanup
 	pool.Exec(ctx, "DROP OWNED BY testpguser CASCADE")
 	pool.Exec(ctx, "DROP ROLE IF EXISTS testpguser")
-	pool.Exec(ctx, "DELETE FROM pgmanager.managed_users WHERE username = 'testpguser'")
+	pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testpguser'")
 	t.Cleanup(func() {
 		pool.Exec(ctx, "DROP OWNED BY testpguser CASCADE")
 		pool.Exec(ctx, "DROP ROLE IF EXISTS testpguser")
-		pool.Exec(ctx, "DELETE FROM pgmanager.managed_users WHERE username = 'testpguser'")
+		pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testpguser'")
 	})
 
 	// create test user
@@ -49,7 +49,7 @@ func TestPgBouncer_AllowsCreatedUser(t *testing.T) {
 	// connect through PgBouncer
 	pgbouncerURL := os.Getenv("PGBOUNCER_URL")
 	if pgbouncerURL == "" {
-		pgbouncerURL = "postgres://testpguser:testpass123@localhost:5432/postgres?sslmode=disable"
+		pgbouncerURL = "postgres://testpguser:testpass123@localhost:5432/pgmanager?sslmode=disable"
 	}
 
 	conn, err := pgx.Connect(ctx, pgbouncerURL)
@@ -92,13 +92,13 @@ func TestBackend_CreateAndDeleteUser(t *testing.T) {
 	// cleanup
 	pool.Exec(ctx, "DROP OWNED BY testsecurityuser CASCADE")
 	pool.Exec(ctx, "DROP ROLE IF EXISTS testsecurityuser")
-	pool.Exec(ctx, "DELETE FROM pgmanager.managed_users WHERE username = 'testsecurityuser'")
+	pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testsecurityuser'")
 	pool.Exec(ctx, "DROP DATABASE IF EXISTS testsecuritydb")
 	pool.Exec(ctx, "CREATE DATABASE testsecuritydb")
 	t.Cleanup(func() {
 		pool.Exec(ctx, "DROP OWNED BY testsecurityuser CASCADE")
 		pool.Exec(ctx, "DROP ROLE IF EXISTS testsecurityuser")
-		pool.Exec(ctx, "DELETE FROM pgmanager.managed_users WHERE username = 'testsecurityuser'")
+		pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testsecurityuser'")
 		pool.Exec(ctx, "DROP DATABASE testsecuritydb WITH (FORCE)")
 	})
 

@@ -77,7 +77,7 @@ func TestBuildDatabaseURL_Defaults(t *testing.T) {
 	t.Setenv("SECRET_PATH", path)
 
 	got := buildDatabaseURL()
-	expected := "postgres://pgmanager:secret@localhost:5432/postgres?sslmode=disable"
+	expected := "postgres://pgmanager:secret@localhost:5432/pgmanager?sslmode=disable"
 	if got != expected {
 		t.Fatalf("expected %s, got %s", expected, got)
 	}

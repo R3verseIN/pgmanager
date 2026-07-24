@@ -70,8 +70,7 @@ func validPassword(s string) bool {
 
 func (h *Handler) InitUserSchema(ctx context.Context) error {
 	_, err := h.pool.Exec(ctx, `
-		CREATE SCHEMA IF NOT EXISTS pgmanager;
-		CREATE TABLE IF NOT EXISTS pgmanager.managed_users (
+		CREATE TABLE IF NOT EXISTS managed_users (
 			username      TEXT NOT NULL,
 			database_name TEXT NOT NULL,
 			access        TEXT NOT NULL CHECK (access IN ('read', 'write', 'ddl', 'full')),
@@ -84,8 +83,34 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 	}
 
 	_, err = h.pool.Exec(ctx, `
-		ALTER TABLE pgmanager.managed_users DROP CONSTRAINT IF EXISTS managed_users_pkey;
-		ALTER TABLE pgmanager.managed_users ADD PRIMARY KEY (username, database_name);
+		ALTER TABLE managed_users DROP CONSTRAINT IF EXISTS managed_users_pkey;
+		ALTER TABLE managed_users ADD PRIMARY KEY (username, database_name);
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = h.pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS auth_users (
+			id            SERIAL PRIMARY KEY,
+			username      TEXT UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			role          TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = h.pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS sessions (
+			id         TEXT PRIMARY KEY,
+			user_id    INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours'
+		);
 	`)
 	return err
 }
@@ -94,7 +119,7 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT u.username, MIN(u.access) AS access, MAX(u.created_at) AS created_at,
 			ARRAY_AGG(u.database_name) AS databases
-		FROM pgmanager.managed_users u
+		FROM managed_users u
 		INNER JOIN pg_catalog.pg_roles r ON r.rolname = u.username
 		GROUP BY u.username
 		ORDER BY MAX(u.created_at) DESC
@@ -199,7 +224,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		}
 
 		_, err = h.pool.Exec(ctx,
-			"INSERT INTO pgmanager.managed_users (username, database_name, access) VALUES ($1, $2, $3)",
+			"INSERT INTO managed_users (username, database_name, access) VALUES ($1, $2, $3)",
 			req.Username, db, req.Access,
 		)
 		if err != nil {
@@ -282,7 +307,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		_, err = h.pool.Exec(ctx, "UPDATE pgmanager.managed_users SET access = $1 WHERE username = $2", req.Access, username)
+		_, err = h.pool.Exec(ctx, "UPDATE managed_users SET access = $1 WHERE username = $2", req.Access, username)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update metadata: "+err.Error())
 			return
@@ -332,14 +357,14 @@ func (h *Handler) AddUserDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var alreadyHas bool
-	err = h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pgmanager.managed_users WHERE username = $1 AND database_name = $2)", username, req.Database).Scan(&alreadyHas)
+	err = h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM managed_users WHERE username = $1 AND database_name = $2)", username, req.Database).Scan(&alreadyHas)
 	if err != nil || alreadyHas {
 		writeError(w, http.StatusBadRequest, "user already has access to this database")
 		return
 	}
 
 	var access string
-	err = h.pool.QueryRow(ctx, "SELECT access FROM pgmanager.managed_users WHERE username = $1 LIMIT 1", username).Scan(&access)
+	err = h.pool.QueryRow(ctx, "SELECT access FROM managed_users WHERE username = $1 LIMIT 1", username).Scan(&access)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get user access level")
 		return
@@ -351,7 +376,7 @@ func (h *Handler) AddUserDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = h.pool.Exec(ctx,
-		"INSERT INTO pgmanager.managed_users (username, database_name, access) VALUES ($1, $2, $3)",
+		"INSERT INTO managed_users (username, database_name, access) VALUES ($1, $2, $3)",
 		username, req.Database, access,
 	)
 	if err != nil {
@@ -372,7 +397,7 @@ func (h *Handler) RemoveUserDatabase(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	_, err := h.pool.Exec(ctx, "DELETE FROM pgmanager.managed_users WHERE username = $1 AND database_name = $2", username, db)
+	_, err := h.pool.Exec(ctx, "DELETE FROM managed_users WHERE username = $1 AND database_name = $2", username, db)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to remove metadata")
 		return
@@ -399,13 +424,13 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	_, _ = h.pool.Exec(ctx, "DROP OWNED BY "+quoteIdent(username)+" CASCADE")
 	_, _ = h.pool.Exec(ctx, "DROP ROLE IF EXISTS "+quoteIdent(username))
-	_, _ = h.pool.Exec(ctx, "DELETE FROM pgmanager.managed_users WHERE username = $1", username)
+	_, _ = h.pool.Exec(ctx, "DELETE FROM managed_users WHERE username = $1", username)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (h *Handler) getUserDatabases(ctx context.Context, username string) []string {
-	rows, err := h.pool.Query(ctx, "SELECT database_name FROM pgmanager.managed_users WHERE username = $1", username)
+	rows, err := h.pool.Query(ctx, "SELECT database_name FROM managed_users WHERE username = $1", username)
 	if err != nil {
 		return nil
 	}

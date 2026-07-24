@@ -62,3 +62,33 @@ export const UpdateUserRequestSchema = z.object({
 export const AddDatabaseRequestSchema = z.object({
   database: z.string().min(1, "database is required"),
 });
+
+export const LoginRequestSchema = z.object({
+  username: z.string().min(1, "username is required"),
+  password: z.string().min(1, "password is required"),
+});
+
+export const SetupRequestSchema = z.object({
+  username: z.string().min(3, "username must be at least 3 characters"),
+  password: z.string().min(8, "password must be at least 8 characters"),
+});
+
+export const AuthUserSchema = z.object({
+  username: z.string(),
+  role: z.enum(["admin", "viewer"]),
+});
+
+export type AuthUser = z.infer<typeof AuthUserSchema>;
+
+export const AuthUsersResponseSchema = z.array(AuthUserSchema);
+
+export const ChangePasswordRequestSchema = z.object({
+  current_password: z.string().min(1, "current password is required"),
+  new_password: z.string().min(8, "new password must be at least 8 characters"),
+});
+
+export const CreateAuthUserRequestSchema = z.object({
+  username: z.string().min(3, "username must be at least 3 characters"),
+  password: z.string().min(8, "password must be at least 8 characters"),
+  role: z.enum(["admin", "viewer"]),
+});
