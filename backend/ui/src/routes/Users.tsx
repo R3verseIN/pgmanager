@@ -72,6 +72,8 @@ export default function Users() {
   const [addDbTarget, setAddDbTarget] = useState<User | null>(null);
   const [addDbName, setAddDbName] = useState("");
   const [addDbError, setAddDbError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   // Auth Users State
   const [authCreateOpen, setAuthCreateOpen] = useState(false);
@@ -86,6 +88,8 @@ export default function Users() {
   const [authResetOpen, setAuthResetOpen] = useState(false);
   const [authResetTarget, setAuthResetTarget] = useState<AuthUserListItem | null>(null);
   const [authResetPassword, setAuthResetPassword] = useState<string | null>(null);
+  const [authDeleteTarget, setAuthDeleteTarget] = useState<AuthUserListItem | null>(null);
+  const [authDeleteConfirmText, setAuthDeleteConfirmText] = useState("");
 
   const { data: users, isLoading } = useQuery({ queryKey: ["users"], queryFn: fetchUsers });
   const { data: databases } = useQuery({ queryKey: ["databases"], queryFn: () => fetchDatabases(false) });
@@ -363,7 +367,8 @@ export default function Users() {
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon" className="text-destructive" onClick={() => {
-                          if (confirm(`Delete user "${user.username}"?`)) deleteMutation.mutate(user.username);
+                          setDeleteTarget(user);
+                          setDeleteConfirmText("");
                         }}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -445,7 +450,8 @@ export default function Users() {
                           </Tooltip>
                         </TooltipProvider>
                         <Button variant="ghost" size="icon" className="text-destructive" onClick={() => {
-                          if (confirm(`Delete auth user "${authUser.username}"?`)) deleteAuthMutation.mutate(authUser.username);
+                          setAuthDeleteTarget(authUser);
+                          setAuthDeleteConfirmText("");
                         }}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -725,6 +731,80 @@ export default function Users() {
             ) : (
               <Button onClick={() => setAuthResetOpen(false)}>Done</Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Postgres User */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete User</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the user "{deleteTarget?.username}"? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Type DELETE to confirm</Label>
+              <Input 
+                value={deleteConfirmText} 
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="DELETE"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              disabled={deleteMutation.isPending || deleteConfirmText !== "DELETE"}
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteMutation.mutate(deleteTarget.username);
+                  setDeleteTarget(null);
+                }
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Auth User */}
+      <Dialog open={!!authDeleteTarget} onOpenChange={(open) => !open && setAuthDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Auth User</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete auth user "{authDeleteTarget?.username}"? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Type DELETE to confirm</Label>
+              <Input 
+                value={authDeleteConfirmText} 
+                onChange={(e) => setAuthDeleteConfirmText(e.target.value)}
+                placeholder="DELETE"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAuthDeleteTarget(null)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              disabled={deleteAuthMutation.isPending || authDeleteConfirmText !== "DELETE"}
+              onClick={() => {
+                if (authDeleteTarget) {
+                  deleteAuthMutation.mutate(authDeleteTarget.username);
+                  setAuthDeleteTarget(null);
+                }
+              }}
+            >
+              Delete
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

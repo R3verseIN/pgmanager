@@ -31,6 +31,7 @@ export default function DatabasesTable() {
   const [showSystem, setShowSystem] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [newName, setNewName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
 
@@ -207,7 +208,12 @@ export default function DatabasesTable() {
 
       <Dialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            setDeleteConfirmText("");
+          }
+        }}
       >
         <DialogContent>
           <DialogHeader>
@@ -217,19 +223,37 @@ export default function DatabasesTable() {
               undone.
             </DialogDescription>
           </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Type DELETE to confirm</Label>
+              <Input 
+                value={deleteConfirmText} 
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="DELETE"
+              />
+            </div>
+          </div>
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              onClick={() => setDeleteTarget(null)}
+              onClick={() => {
+                setDeleteTarget(null);
+                setDeleteConfirmText("");
+              }}
             >
               Cancel
             </Button>
             <Button
               type="button"
               variant="destructive"
-              disabled={deleteMutation.isPending}
-              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+              disabled={deleteMutation.isPending || deleteConfirmText !== "DELETE"}
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteMutation.mutate(deleteTarget);
+                  setDeleteConfirmText("");
+                }
+              }}
             >
               Delete
             </Button>
