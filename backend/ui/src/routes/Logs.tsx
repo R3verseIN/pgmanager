@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, FileJson } from "lucide-react";
 import { fetchLogs } from "../api/client";
 import type { AuditLogEntry } from "../lib/schemas";
 
@@ -8,6 +8,52 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+
+function LogDetail({ detail }: { detail: any }) {
+  const [open, setOpen] = useState(false);
+  
+  if (!detail) return <span>—</span>;
+  
+  const isObj = typeof detail === "object";
+  const rawStr = isObj ? JSON.stringify(detail) : String(detail);
+  const prettyStr = isObj ? JSON.stringify(detail, null, 2) : String(detail);
+  const isLong = rawStr.length > 40;
+  
+  if (!isLong) {
+    return <span className="font-mono text-xs text-muted-foreground">{rawStr}</span>;
+  }
+  
+  return (
+    <>
+      <button 
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 px-2 py-1 bg-muted/50 hover:bg-muted border rounded text-xs font-medium text-muted-foreground transition-colors"
+      >
+        <FileJson className="h-3.5 w-3.5" />
+        View Details
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Audit Log Details</DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 p-4 rounded-md bg-muted/50 border overflow-x-auto">
+            <pre className="text-xs font-mono text-foreground whitespace-pre-wrap">
+              {prettyStr}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
 export default function Logs() {
   const [page, setPage] = useState(0);
@@ -105,16 +151,8 @@ export default function Logs() {
                   </td>
                   <td className="px-3 py-2">{entry.database ?? "—"}</td>
                   <td className="px-3 py-2">{entry.tableName ?? "—"}</td>
-                  <td className="px-3 py-2 max-w-62.5">
-                    {entry.detail ? (
-                      <span className="font-mono text-xs text-muted-foreground truncate block">
-                        {typeof entry.detail === "object"
-                          ? JSON.stringify(entry.detail)
-                          : String(entry.detail)}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
+                  <td className="px-3 py-2">
+                    <LogDetail detail={entry.detail} />
                   </td>
                   <td className="px-3 py-2 font-mono text-xs">{entry.ipAddress ?? "—"}</td>
                 </tr>
