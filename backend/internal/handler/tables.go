@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -96,13 +97,34 @@ func (h *Handler) checkWriteAccess(ctx context.Context, user *auth.SessionUser) 
 }
 
 func clientIP(r *http.Request) string {
+	remoteIPStr, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		remoteIPStr = r.RemoteAddr
+	}
+
+	remoteIP := net.ParseIP(remoteIPStr)
+
+	// If it's a public IP, ignore all headers to prevent spoofing
+	if remoteIP == nil || (!remoteIP.IsPrivate() && !remoteIP.IsLoopback()) {
+		return remoteIPStr
+	}
+
+	// It's a private/local IP (e.g. from Docker proxy/Nginx), so we trust headers
+	if cfip := r.Header.Get("CF-Connecting-IP"); cfip != "" {
+		return strings.TrimSpace(cfip)
+	}
+	if trueClient := r.Header.Get("True-Client-IP"); trueClient != "" {
+		return strings.TrimSpace(trueClient)
+	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return strings.Split(xff, ",")[0]
+		ips := strings.Split(xff, ",")
+		return strings.TrimSpace(ips[0])
 	}
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
+		return strings.TrimSpace(xri)
 	}
-	return r.RemoteAddr
+
+	return remoteIPStr
 }
 
 // --- Path Extraction Helpers ---
