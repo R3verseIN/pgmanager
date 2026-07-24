@@ -211,9 +211,19 @@ export default function Users() {
       if (vars.access) opts.access = vars.access;
       return updateUser(vars.username, opts);
     },
-    onSuccess: () => {
+    onSuccess: (_, vars) => {
       toast.success("User updated");
       setEditOpen(false);
+      if (vars.password && editTarget) {
+        const firstDb = editTarget.databases?.[0] || "postgres";
+        const connStr = `postgres://${vars.username}:${vars.password}@localhost:5432/${firstDb}`;
+        setShowCreds({
+          username: vars.username,
+          password: vars.password,
+          databases: editTarget.databases || [],
+          connectionString: connStr,
+        });
+      }
       setEditTarget(null);
       setEditPassword("");
       queryClient.invalidateQueries({ queryKey: ["users"] });
@@ -680,7 +690,21 @@ export default function Users() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>New Password (leave blank to keep current)</Label>
-                <Input type="password" placeholder="8-128 chars" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} />
+                <div className="flex gap-2">
+                  <Input type="text" placeholder="8-128 chars" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const rand = Array.from(crypto.getRandomValues(new Uint8Array(12)))
+                        .map((b) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[b % 62])
+                        .join("");
+                      setEditPassword(rand);
+                    }}
+                  >
+                    Generate
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Access Level</Label>
@@ -896,13 +920,27 @@ export default function Users() {
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="auth-reset-password">New Password (Optional)</Label>
-                <Input
-                  id="auth-reset-password"
-                  placeholder="Leave blank to generate randomly"
-                  type="password"
-                  value={authResetInput}
-                  onChange={(e) => setAuthResetInput(e.target.value)}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="auth-reset-password"
+                    placeholder="Leave blank to generate randomly"
+                    type="text"
+                    value={authResetInput}
+                    onChange={(e) => setAuthResetInput(e.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const rand = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                        .map((b) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[b % 62])
+                        .join("");
+                      setAuthResetInput(rand);
+                    }}
+                  >
+                    Generate
+                  </Button>
+                </div>
               </div>
             </div>
           )}
