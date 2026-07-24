@@ -66,8 +66,9 @@ type createUserRequest struct {
 }
 
 type updateUserRequest struct {
-	Password string `json:"password,omitempty"`
-	Access   string `json:"access,omitempty"`
+	Password         string `json:"password,omitempty"`
+	Access           string `json:"access,omitempty"`
+	GeneratePassword bool   `json:"generatePassword,omitempty"`
 }
 
 type addDatabaseRequest struct {
@@ -367,7 +368,15 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	if req.Password != "" {
+	var newPassword string
+	if req.GeneratePassword {
+		newPassword = GeneratePassword(16)
+		_, err = h.pool.Exec(ctx, "ALTER ROLE "+quoteIdent(username)+" PASSWORD "+quoteLiteral(newPassword))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update password: "+err.Error())
+			return
+		}
+	} else if req.Password != "" {
 		if !validPassword(req.Password) {
 			writeError(w, http.StatusBadRequest, "password must be 8-128 ASCII characters")
 			return
@@ -377,6 +386,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to update password: "+err.Error())
 			return
 		}
+		newPassword = req.Password
 	}
 
 	if req.Access != "" {
@@ -405,7 +415,11 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	resp := map[string]string{"status": "updated"}
+	if newPassword != "" {
+		resp["password"] = newPassword
+	}
+	writeJSON(w, http.StatusOK, resp)
 
 	user := auth.GetUserFromContext(r.Context())
 	actor := ""

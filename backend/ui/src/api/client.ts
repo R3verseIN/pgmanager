@@ -94,12 +94,13 @@ export async function createUser(
 
 export async function updateUser(
   username: string,
-  opts: { password?: string; access?: "read" | "write" | "ddl" | "full" },
-): Promise<void> {
-  await request<void>(`/users/${encodeURIComponent(username)}`, {
+  opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean },
+): Promise<{ password?: string }> {
+  const data = await request<{ password?: string }>(`/users/${encodeURIComponent(username)}`, {
     method: "PUT",
     body: JSON.stringify(opts),
   });
+  return data;
 }
 
 export async function addUserDatabase(username: string, database: string): Promise<void> {

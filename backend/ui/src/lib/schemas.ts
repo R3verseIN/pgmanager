@@ -57,6 +57,7 @@ export const CreateUserResponseSchema = z.object({
 export const UpdateUserRequestSchema = z.object({
   password: z.string().optional(),
   access: z.enum(["read", "write", "ddl", "full"]).optional(),
+  generatePassword: z.boolean().optional(),
 });
 
 export const AddDatabaseRequestSchema = z.object({

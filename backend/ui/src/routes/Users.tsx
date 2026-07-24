@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2, RefreshCw, Copy, Edit, Key } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Copy, Edit, Key, Dices } from "lucide-react";
 import {
   fetchUsers,
   fetchDatabases,
@@ -151,6 +151,7 @@ export default function Users() {
   const [editTarget, setEditTarget] = useState<User | null>(null);
   const [editAccess, setEditAccess] = useState<"read" | "write" | "ddl" | "full">("write");
   const [editPassword, setEditPassword] = useState("");
+  const [editGeneratePassword, setEditGeneratePassword] = useState(false);
   const [addDbOpen, setAddDbOpen] = useState(false);
   const [addDbTarget, setAddDbTarget] = useState<User | null>(null);
   const [addDbName, setAddDbName] = useState("");
@@ -205,27 +206,30 @@ export default function Users() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full" }) => {
-      const opts: { password?: string; access?: "read" | "write" | "ddl" | "full" } = {};
+    mutationFn: (vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean }) => {
+      const opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean } = {};
       if (vars.password) opts.password = vars.password;
       if (vars.access) opts.access = vars.access;
+      if (vars.generatePassword) opts.generatePassword = vars.generatePassword;
       return updateUser(vars.username, opts);
     },
-    onSuccess: (_, vars) => {
+    onSuccess: (data, vars) => {
       toast.success("User updated");
       setEditOpen(false);
-      if (vars.password && editTarget) {
+      const finalPassword = data?.password || vars.password;
+      if (finalPassword && editTarget) {
         const firstDb = editTarget.databases?.[0] || "postgres";
-        const connStr = `postgres://${vars.username}:${vars.password}@localhost:5432/${firstDb}`;
+        const connStr = `postgres://${vars.username}:${finalPassword}@localhost:5432/${firstDb}`;
         setShowCreds({
           username: vars.username,
-          password: vars.password,
+          password: finalPassword,
           databases: editTarget.databases || [],
           connectionString: connStr,
         });
       }
       setEditTarget(null);
       setEditPassword("");
+      setEditGeneratePassword(false);
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -322,14 +326,15 @@ export default function Users() {
   function handleEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editTarget) return;
-    const result = UpdateUserRequestSchema.safeParse({ password: editPassword || undefined, access: editAccess });
+    const result = UpdateUserRequestSchema.safeParse({ password: editPassword || undefined, access: editAccess, generatePassword: editGeneratePassword });
     if (!result.success) {
       toast.error(result.error.errors[0]?.message ?? "Invalid input");
       return;
     }
-    const vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full" } = { username: editTarget.username };
+    const vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean } = { username: editTarget.username };
     if (result.data.password) vars.password = result.data.password;
     if (result.data.access) vars.access = result.data.access;
+    if (result.data.generatePassword) vars.generatePassword = result.data.generatePassword;
     updateMutation.mutate(vars);
   }
 
@@ -478,6 +483,7 @@ export default function Users() {
                           setEditTarget(user);
                           setEditAccess(user.access);
                           setEditPassword("");
+                          setEditGeneratePassword(false);
                           setEditOpen(true);
                         }}>
                           <Edit className="h-4 w-4" />
@@ -688,7 +694,27 @@ export default function Users() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>New Password (leave blank to keep current)</Label>
-                <Input type="password" placeholder="Leave blank to keep current password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} />
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    placeholder={editGeneratePassword ? "Will be auto-generated on save" : "Leave blank to keep current password"}
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    disabled={editGeneratePassword}
+                  />
+                  <Button
+                    type="button"
+                    variant={editGeneratePassword ? "default" : "outline"}
+                    size="icon"
+                    onClick={() => {
+                      setEditGeneratePassword(!editGeneratePassword);
+                      if (!editGeneratePassword) setEditPassword("");
+                    }}
+                    title="Auto-generate password"
+                  >
+                    <Dices className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Access Level</Label>
