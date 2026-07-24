@@ -3,14 +3,12 @@ import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2, RefreshCw, Eye, EyeOff } from "lucide-react";
-import { fetchDatabases, createDatabase, deleteDatabase } from "../api/client";
-import { CreateDatabaseSchema } from "../lib/schemas";
+import { fetchDatabases, deleteDatabase } from "../api/client";
 import type { Database } from "../lib/schemas";
 import { useAuth } from "../contexts/AuthContext";
 
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Label } from "./ui/label";
 import {
   Table,
   TableBody,
@@ -19,43 +17,25 @@ import {
   TableHeader,
   TableRow,
 } from "./ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+import CreateDatabaseDialog from "./dialogs/CreateDatabaseDialog";
+import ConfirmDeleteDialog from "./dialogs/ConfirmDeleteDialog";
 
 export default function DatabasesTable() {
   const [showSystem, setShowSystem] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
-  const [newName, setNewName] = useState("");
-  const [nameError, setNameError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const queryClient = useQueryClient();
   const { isAdmin } = useAuth();
 
-  const { data: databases, isLoading, refetch } = useQuery({
+  const {
+    data: databases,
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ["databases", showSystem],
     queryFn: () => fetchDatabases(showSystem),
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (name: string) => createDatabase(name),
-    onSuccess: () => {
-      toast.success("Database created");
-      setCreateOpen(false);
-      setNewName("");
-      setNameError(null);
-      queryClient.invalidateQueries({ queryKey: ["databases"] });
-    },
-    onError: (error: Error) => {
-      toast.error(error.message);
-    },
   });
 
   const deleteMutation = useMutation({
@@ -70,20 +50,6 @@ export default function DatabasesTable() {
       setDeleteTarget(null);
     },
   });
-
-  function handleCreate(e?: React.FormEvent) {
-    e?.preventDefault();
-    const result = CreateDatabaseSchema.safeParse({ name: newName });
-    if (!result.success) {
-      const firstError = result.error.errors[0];
-      setNameError(firstError?.message ?? "Invalid name");
-      return;
-    }
-    setNameError(null);
-    createMutation.mutate(result.data.name);
-  }
-
-  const [searchQuery, setSearchQuery] = useState("");
 
   const filteredDatabases = databases?.filter((db: Database) =>
     db.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -149,18 +115,23 @@ export default function DatabasesTable() {
                   colSpan={isAdmin ? 2 : 1}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  {searchQuery ? "No matching databases found." : "No databases found."}
+                  {searchQuery
+                    ? "No matching databases found."
+                    : "No databases found."}
                 </TableCell>
               </TableRow>
             ) : (
               filteredDatabases.map((db: Database, i: number) => (
-                <TableRow 
-                  key={db.name} 
+                <TableRow
+                  key={db.name}
                   className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
                   style={{ animationDelay: `${i * 50}ms` }}
                 >
                   <TableCell className="font-medium">
-                    <Link to={`/databases/${db.name}`} className="text-foreground hover:underline">
+                    <Link
+                      to={`/databases/${db.name}`}
+                      className="text-foreground hover:underline"
+                    >
                       {db.name}
                     </Link>
                   </TableCell>
@@ -184,103 +155,21 @@ export default function DatabasesTable() {
         </Table>
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Database</DialogTitle>
-            <DialogDescription>
-              Create a new PostgreSQL database instance.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleCreate}>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="dbname">Database Name</Label>
-                <Input
-                  id="dbname"
-                  placeholder="e.g. staging_db"
-                  value={newName}
-                  onChange={(e) => {
-                    setNewName(e.target.value);
-                    setNameError(null);
-                  }}
-                  autoFocus
-                />
-                {nameError && (
-                  <p className="text-sm text-destructive">{nameError}</p>
-                )}
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setCreateOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
-                Create
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={!!deleteTarget}
+      <CreateDatabaseDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
         onOpenChange={(open) => {
-          if (!open) {
+          if (!open) setDeleteTarget(null);
+        }}
+        itemName={deleteTarget ?? ""}
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (deleteTarget) {
+            deleteMutation.mutate(deleteTarget);
             setDeleteTarget(null);
-            setDeleteConfirmText("");
           }
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Database</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete "{deleteTarget}"? This cannot be
-              undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div className="space-y-2">
-              <Label>Type DELETE to confirm</Label>
-              <Input 
-                value={deleteConfirmText} 
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder="DELETE"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setDeleteTarget(null);
-                setDeleteConfirmText("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={deleteMutation.isPending || deleteConfirmText !== "DELETE"}
-              onClick={() => {
-                if (deleteTarget) {
-                  deleteMutation.mutate(deleteTarget);
-                  setDeleteConfirmText("");
-                }
-              }}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      />
     </div>
   );
 }

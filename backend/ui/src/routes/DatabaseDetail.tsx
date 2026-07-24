@@ -3,9 +3,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, RefreshCw, Table, Terminal } from "lucide-react";
-import { fetchTables, createTable, executeQuery } from "../api/client";
+import { fetchTables, createTable } from "../api/client";
 import { CreateDatabaseSchema } from "../lib/schemas";
-import type { TableInfo, QueryResult } from "../lib/schemas";
+import type { TableInfo } from "../lib/schemas";
 import { useAuth } from "../contexts/AuthContext";
 
 import { Button } from "../components/ui/button";
@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
+import SqlConsole from "../components/SqlConsole";
 
 export default function DatabaseDetail() {
   const { name } = useParams<{ name: string }>();
@@ -31,7 +32,11 @@ export default function DatabaseDetail() {
   const [tableNameError, setTableNameError] = useState<string | null>(null);
   const [tab, setTab] = useState("tables");
 
-  const { data: tables, isLoading: tablesLoading, refetch: refetchTables } = useQuery({
+  const {
+    data: tables,
+    isLoading: tablesLoading,
+    refetch: refetchTables,
+  } = useQuery({
     queryKey: ["tables", name],
     queryFn: () => fetchTables(name!),
     enabled: !!name,
@@ -109,15 +114,21 @@ export default function DatabaseDetail() {
           </div>
 
           {tablesLoading ? (
-            <div className="text-center py-8 text-muted-foreground">Loading...</div>
+            <div className="text-center py-8 text-muted-foreground">
+              Loading...
+            </div>
           ) : !tables?.length ? (
-            <div className="text-center py-8 text-muted-foreground">No tables found.</div>
+            <div className="text-center py-8 text-muted-foreground">
+              No tables found.
+            </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {tables.map((t: TableInfo, i: number) => (
                 <button
                   key={t.name}
-                  onClick={() => navigate(`/databases/${name}/tables/${t.name}`)}
+                  onClick={() =>
+                    navigate(`/databases/${name}/tables/${t.name}`)
+                  }
                   className="flex items-center justify-between rounded-md border border-border p-4 text-left hover:bg-accent/50 hover:border-accent transition-all duration-200 animate-in fade-in slide-in-from-bottom-2 fill-mode-both"
                   style={{ animationDelay: `${i * 30}ms` }}
                 >
@@ -145,7 +156,9 @@ export default function DatabaseDetail() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create Table</DialogTitle>
-            <DialogDescription>Create a new table in {name} with a default id column.</DialogDescription>
+            <DialogDescription>
+              Create a new table in {name} with a default id column.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateTable}>
             <div className="space-y-4 py-4">
@@ -166,7 +179,11 @@ export default function DatabaseDetail() {
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateOpen(false)}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={createTableMutation.isPending}>
@@ -176,93 +193,6 @@ export default function DatabaseDetail() {
           </form>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function SqlConsole({ dbName }: { dbName: string }) {
-  const [sql, setSql] = useState("");
-  const [result, setResult] = useState<QueryResult | null>(null);
-
-  const queryMutation = useMutation({
-    mutationFn: (query: string) => executeQuery(dbName, query),
-    onSuccess: (data) => {
-      setResult(data);
-      if (data.error) {
-        toast.error(data.error);
-      }
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
-
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <textarea
-          className="w-full h-40 rounded-md border border-border bg-card px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
-          placeholder="SELECT * FROM table_name;"
-          value={sql}
-          onChange={(e) => setSql(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              if (sql.trim()) queryMutation.mutate(sql.trim());
-            }
-          }}
-          spellCheck={false}
-        />
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={() => {
-              if (sql.trim()) queryMutation.mutate(sql.trim());
-            }}
-            disabled={!sql.trim() || queryMutation.isPending}
-          >
-            Execute
-          </Button>
-          {result && (
-            <span className="text-sm text-muted-foreground">
-              {result.duration}ms | {result.rowCount} row{result.rowCount !== 1 ? "s" : ""}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {result?.error && (
-        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
-          {result.error}
-        </div>
-      )}
-
-      {result && !result.error && result.columns.length > 0 && (
-        <div className="rounded-md border border-border overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                {result.columns.map((col: string) => (
-                  <th key={col} className="px-3 py-2 text-left font-medium text-muted-foreground">
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {result.rows.map((row: unknown[], i: number) => (
-                <tr key={i} className="border-b border-border last:border-0">
-                  {row.map((cell: unknown, j: number) => (
-                    <td key={j} className="px-3 py-2 font-mono text-xs">
-                      {cell === null ? (
-                        <span className="text-muted-foreground italic">NULL</span>
-                      ) : (
-                        String(cell)
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }
