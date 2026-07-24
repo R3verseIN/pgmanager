@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
-import { Database, Users as UsersIcon, Settings, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Database, Users as UsersIcon, Settings, Loader2, ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DatabasesTable from "./components/DatabasesTable";
@@ -16,12 +16,34 @@ function AppLayout() {
   const { user } = useAuth();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  // Close mobile menu when route changes
+  useEffect(() => {
+    setIsMobileOpen(false);
+  }, [location.pathname]);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-screen bg-background flex-col md:flex-row">
+      {/* Mobile Header */}
+      <div className="md:hidden flex items-center justify-between border-b border-border bg-card px-4 h-14 shrink-0">
+        <div className="flex items-center gap-3">
+          <img 
+            src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png" 
+            alt="pgmanager logo" 
+            className="h-8 w-8 object-contain shrink-0" 
+          />
+          <span className="font-semibold text-foreground text-sm">pgmanager</span>
+        </div>
+        <button onClick={() => setIsMobileOpen(true)} className="p-2 -mr-2 text-muted-foreground hover:text-foreground">
+          <Menu className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Desktop Sidebar */}
       <aside 
         className={cn(
-          "flex flex-col border-r border-border bg-card transition-all duration-300",
+          "hidden md:flex flex-col border-r border-border bg-card transition-all duration-300 shrink-0",
           isCollapsed ? "w-20" : "w-56"
         )}
       >
@@ -118,7 +140,63 @@ function AppLayout() {
         </div>
       </aside>
 
-      <main className="flex-1 p-6 overflow-auto">
+      {/* Mobile Sidebar Overlay */}
+      {isMobileOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setIsMobileOpen(false)} />
+          <div className="fixed inset-y-0 left-0 w-64 bg-card border-r border-border shadow-lg flex flex-col p-4 animate-in slide-in-from-left">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <img 
+                  src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png" 
+                  alt="pgmanager logo" 
+                  className="h-8 w-8 object-contain shrink-0" 
+                />
+                <span className="font-semibold text-foreground text-sm">pgmanager</span>
+              </div>
+              <button onClick={() => setIsMobileOpen(false)} className="p-2 -mr-2 text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <nav className="flex-1 space-y-1">
+              <Link
+                to="/"
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  selectedKey === "databases"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                )}
+              >
+                <Database className="h-4 w-4 shrink-0" />
+                Databases
+              </Link>
+              {user?.role === "admin" && (
+                <Link
+                  to="/users"
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mt-1",
+                    selectedKey === "users"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  )}
+                >
+                  <UsersIcon className="h-4 w-4 shrink-0" />
+                  Users
+                </Link>
+              )}
+            </nav>
+            <div className="border-t border-border pt-4">
+              <div className="flex cursor-not-allowed items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground opacity-50">
+                <Settings className="h-4 w-4 shrink-0" />
+                Settings
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <main className="flex-1 p-4 sm:p-6 overflow-auto min-w-0">
         <Routes>
           <Route path="/" element={<DatabasesTable />} />
           <Route path="/users" element={user?.role === "admin" ? <Users /> : <Navigate to="/" />} />

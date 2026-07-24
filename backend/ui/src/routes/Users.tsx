@@ -289,7 +289,7 @@ export default function Users() {
           <h2 className="text-xl font-semibold">Postgres Users</h2>
           <p className="text-sm text-muted-foreground">Manage database users and their access controls.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-2">
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" /> Create User
           </Button>
@@ -304,8 +304,8 @@ export default function Users() {
               <TableRow>
                 <TableHead>Username</TableHead>
                 <TableHead>Databases</TableHead>
-                <TableHead>Access</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead className="hidden sm:table-cell">Access</TableHead>
+                <TableHead className="hidden md:table-cell">Created</TableHead>
                 <TableHead className="w-25"></TableHead>
               </TableRow>
             </TableHeader>
@@ -348,10 +348,10 @@ export default function Users() {
                         </Badge>
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <Badge variant={accessColors[user.access]}>{user.access.toUpperCase()}</Badge>
                     </TableCell>
-                    <TableCell>{new Date(user.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="hidden md:table-cell">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
                         <Button variant="ghost" size="icon" onClick={() => {
@@ -383,7 +383,7 @@ export default function Users() {
           <h2 className="text-xl font-semibold">Auth Users</h2>
           <p className="text-sm text-muted-foreground">Manage users who can log into this dashboard.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-2">
           <Button onClick={() => setAuthCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" /> Create Auth User
           </Button>
@@ -398,7 +398,7 @@ export default function Users() {
               <TableRow>
                 <TableHead>Username</TableHead>
                 <TableHead>Role</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead className="hidden sm:table-cell">Created</TableHead>
                 <TableHead className="w-30"></TableHead>
               </TableRow>
             </TableHeader>
@@ -420,7 +420,7 @@ export default function Users() {
                         {authUser.role.toUpperCase()}
                       </Badge>
                     </TableCell>
-                    <TableCell>{new Date(authUser.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="hidden sm:table-cell">{new Date(authUser.createdAt).toLocaleDateString()}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
                         <Button variant="ghost" size="icon" onClick={() => {

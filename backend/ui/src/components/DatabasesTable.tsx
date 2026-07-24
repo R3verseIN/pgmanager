@@ -83,28 +83,32 @@ export default function DatabasesTable() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        {isAdmin && (
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Database
-          </Button>
-        )}
-        <Button
-          variant="outline"
-          onClick={() => setShowSystem((prev) => !prev)}
-        >
-          {showSystem ? (
-            <EyeOff className="mr-2 h-4 w-4" />
-          ) : (
-            <Eye className="mr-2 h-4 w-4" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          {isAdmin && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Database
+            </Button>
           )}
-          {showSystem ? "Hide System" : "Show System"}
-        </Button>
-        <Button variant="outline" onClick={() => refetch()}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowSystem((prev) => !prev)}
+          >
+            {showSystem ? (
+              <EyeOff className="mr-2 h-4 w-4" />
+            ) : (
+              <Eye className="mr-2 h-4 w-4" />
+            )}
+            {showSystem ? "Hide System" : "Show System"}
+          </Button>
+          <Button variant="outline" onClick={() => refetch()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-md border border-border">

@@ -54,7 +54,7 @@ export default function Setup() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-95 rounded-xl border border-border bg-card p-10 shadow-sm">
+      <div className="w-full max-w-95 rounded-xl border border-border bg-card p-6 sm:p-10 shadow-sm">
         <div className="mb-8 text-center">
           <img 
             src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png" 
