@@ -306,7 +306,7 @@ export default function Users() {
                 <TableHead>Databases</TableHead>
                 <TableHead>Access</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="w-[100px]"></TableHead>
+                <TableHead className="w-25"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -399,7 +399,7 @@ export default function Users() {
                 <TableHead>Username</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="w-[120px]"></TableHead>
+                <TableHead className="w-30"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

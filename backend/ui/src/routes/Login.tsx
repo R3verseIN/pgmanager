@@ -34,11 +34,13 @@ export default function Login() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-[380px] rounded-xl border border-border bg-card p-10 shadow-sm">
+      <div className="w-full max-w-95 rounded-xl border border-border bg-card p-10 shadow-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-primary-foreground">
-            pg
-          </div>
+          <img 
+            src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png" 
+            alt="pgmanager logo" 
+            className="mx-auto mb-4 h-12 w-12 object-contain" 
+          />
           <h1 className="text-2xl font-semibold text-foreground">pgmanager</h1>
         </div>
 

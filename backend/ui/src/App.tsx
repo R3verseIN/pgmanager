@@ -21,9 +21,11 @@ function AppLayout() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
-                  pg
-                </div>
+                <img 
+                  src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png" 
+                  alt="pgmanager logo" 
+                  className="h-8 w-8 object-contain shrink-0" 
+                />
               </TooltipTrigger>
               <TooltipContent side="right">pgmanager</TooltipContent>
             </Tooltip>

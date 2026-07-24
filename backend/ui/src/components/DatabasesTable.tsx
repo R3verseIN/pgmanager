@@ -112,7 +112,7 @@ export default function DatabasesTable() {
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
-              {isAdmin && <TableHead className="w-[80px]"></TableHead>}
+              {isAdmin && <TableHead className="w-20"></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
