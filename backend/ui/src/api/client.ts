@@ -95,7 +95,7 @@ export async function createUser(
 
 export async function updateUser(
   username: string,
-  opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean; allowedIps?: string[] },
+  opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean; allowedIps?: string[]; databases?: string[] },
 ): Promise<{ password?: string }> {
   const data = await request<{ password?: string }>(`/users/${encodeURIComponent(username)}`, {
     method: "PUT",

@@ -61,6 +61,7 @@ export const UpdateUserRequestSchema = z.object({
   access: z.enum(["read", "write", "ddl", "full"]).optional(),
   generatePassword: z.boolean().optional(),
   allowedIps: z.array(z.string()).optional(),
+  databases: z.array(z.string()).optional(),
 });
 
 export const AddDatabaseRequestSchema = z.object({

@@ -36,8 +36,8 @@ func extractUserDBFromPath(path string) (string, string) {
 	}
 	rest := path[len(prefix):]
 	parts := strings.Split(rest, "/")
-	if len(parts) >= 4 && parts[1] == "databases" {
-		return parts[0], parts[3]
+	if len(parts) >= 3 && parts[1] == "databases" {
+		return parts[0], parts[2]
 	}
 	return "", ""
 }
@@ -73,6 +73,7 @@ type updateUserRequest struct {
 	Access           string   `json:"access,omitempty"`
 	GeneratePassword bool     `json:"generatePassword,omitempty"`
 	AllowedIps       []string `json:"allowedIps,omitempty"`
+	Databases        []string `json:"databases,omitempty"`
 }
 
 type addDatabaseRequest struct {
@@ -405,6 +406,57 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		newPassword = req.Password
+	}
+
+	var currentAccess string
+	var currentIps string
+	_ = h.pool.QueryRow(ctx, "SELECT access, allowed_ips::text FROM managed_users WHERE username = $1 LIMIT 1", username).Scan(&currentAccess, &currentIps)
+	if currentAccess == "" {
+		currentAccess = "write" // fallback
+	}
+	if currentIps == "" {
+		currentIps = "[\"0.0.0.0/0\"]"
+	}
+	if req.Access != "" {
+		currentAccess = req.Access
+	}
+	if len(req.AllowedIps) > 0 {
+		ipsBytes, _ := json.Marshal(req.AllowedIps)
+		currentIps = string(ipsBytes)
+	}
+
+	if req.Databases != nil {
+		existingDBs := h.getUserDatabases(ctx, username)
+		existingMap := make(map[string]bool)
+		for _, db := range existingDBs {
+			existingMap[db] = true
+		}
+		requestedMap := make(map[string]bool)
+		for _, db := range req.Databases {
+			requestedMap[db] = true
+		}
+
+		// Remove databases
+		for db := range existingMap {
+			if !requestedMap[db] {
+				if err := h.revokeAccess(ctx, username, db); err != nil {
+					writeError(w, http.StatusInternalServerError, "failed to revoke access: "+err.Error())
+					return
+				}
+				_, _ = h.pool.Exec(ctx, "DELETE FROM managed_users WHERE username = $1 AND database_name = $2", username, db)
+			}
+		}
+
+		// Add databases
+		for db := range requestedMap {
+			if !existingMap[db] {
+				if err := h.grantAccess(ctx, username, db, currentAccess); err != nil {
+					writeError(w, http.StatusInternalServerError, "failed to grant access: "+err.Error())
+					return
+				}
+				_, _ = h.pool.Exec(ctx, "INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4::jsonb)", username, db, currentAccess, currentIps)
+			}
+		}
 	}
 
 	if req.Access != "" {

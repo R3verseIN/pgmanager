@@ -1,15 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2, RefreshCw, Copy, Edit, Key, Dices, Shield } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Copy, Edit, Key, Dices } from "lucide-react";
 import {
   fetchUsers,
   fetchDatabases,
   createUser,
   deleteUser,
   updateUser,
-  addUserDatabase,
-  removeUserDatabase,
   fetchAuthUsers,
   createAuthUser,
   updateAuthUser,
@@ -19,7 +17,6 @@ import {
 import {
   CreateUserRequestSchema,
   UpdateUserRequestSchema,
-  AddDatabaseRequestSchema,
   CreateAuthUserRequestSchema,
 } from "../lib/schemas";
 import type { User, AuthUserListItem, Database } from "../lib/schemas";
@@ -29,13 +26,6 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
 import {
   Table,
@@ -150,20 +140,19 @@ export default function Users() {
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<User | null>(null);
   const [editAccess, setEditAccess] = useState<"read" | "write" | "ddl" | "full">("write");
-  const [editPassword, setEditPassword] = useState("");
-  const [editGeneratePassword, setEditGeneratePassword] = useState(false);
-  const [addDbOpen, setAddDbOpen] = useState(false);
-  const [addDbTarget, setAddDbTarget] = useState<User | null>(null);
-  const [addDbName, setAddDbName] = useState("");
-  const [addDbError, setAddDbError] = useState<string | null>(null);
+  const [editDatabases, setEditDatabases] = useState<string[]>([]);
+  const [editAllowedIps, setEditAllowedIps] = useState("");
+
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetTarget, setResetTarget] = useState<User | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetGenerate, setResetGenerate] = useState(false);
+  const [resetResult, setResetResult] = useState<string | null>(null);
+
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
-  // Allowed IPs state
   const [formAllowedIps, setFormAllowedIps] = useState("");
-  const [editIpsOpen, setEditIpsOpen] = useState(false);
-  const [editIpsTarget, setEditIpsTarget] = useState<User | null>(null);
-  const [editIpsValue, setEditIpsValue] = useState("");
 
   // Auth Users State
   const [authCreateOpen, setAuthCreateOpen] = useState(false);
@@ -212,53 +201,28 @@ export default function Users() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean; allowedIps?: string[] }) => {
-      const opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean; allowedIps?: string[] } = {};
+    mutationFn: (vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean; allowedIps?: string[]; databases?: string[] }) => {
+      const opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean; allowedIps?: string[]; databases?: string[] } = {};
       if (vars.password) opts.password = vars.password;
       if (vars.access) opts.access = vars.access;
       if (vars.generatePassword) opts.generatePassword = vars.generatePassword;
       if (vars.allowedIps) opts.allowedIps = vars.allowedIps;
+      if (vars.databases) opts.databases = vars.databases;
       return updateUser(vars.username, opts);
     },
     onSuccess: (data, vars) => {
       toast.success("User updated");
       setEditOpen(false);
+      setResetOpen(false);
+      
       const finalPassword = data?.password || vars.password;
-      if (finalPassword && editTarget) {
-        const firstDb = editTarget.databases?.[0] || "postgres";
-        const connStr = `postgres://${vars.username}:${finalPassword}@localhost:5432/${firstDb}`;
-        setShowCreds({
-          username: vars.username,
-          password: finalPassword,
-          databases: editTarget.databases || [],
-          connectionString: connStr,
-        });
+      if (finalPassword) {
+        setResetResult(finalPassword);
       }
       setEditTarget(null);
-      setEditPassword("");
-      setEditGeneratePassword(false);
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
-
-  const addDbMutation = useMutation({
-    mutationFn: (vars: { username: string; database: string }) => addUserDatabase(vars.username, vars.database),
-    onSuccess: () => {
-      toast.success("Database granted");
-      setAddDbOpen(false);
-      setAddDbTarget(null);
-      setAddDbName("");
-      setAddDbError(null);
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
-
-  const removeDbMutation = useMutation({
-    mutationFn: (vars: { username: string; database: string }) => removeUserDatabase(vars.username, vars.database),
-    onSuccess: () => {
-      toast.success("Database removed");
+      setResetTarget(null);
+      setResetPassword("");
+      setResetGenerate(false);
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -346,28 +310,36 @@ export default function Users() {
   function handleEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editTarget) return;
-    const result = UpdateUserRequestSchema.safeParse({ password: editPassword || undefined, access: editAccess, generatePassword: editGeneratePassword });
+    const result = UpdateUserRequestSchema.safeParse({ access: editAccess, databases: editDatabases });
     if (!result.success) {
       toast.error(result.error.errors[0]?.message ?? "Invalid input");
       return;
     }
-    const vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean } = { username: editTarget.username };
-    if (result.data.password) vars.password = result.data.password;
+    const vars: { username: string; access?: "read" | "write" | "ddl" | "full"; allowedIps?: string[]; databases?: string[] } = { username: editTarget.username };
     if (result.data.access) vars.access = result.data.access;
-    if (result.data.generatePassword) vars.generatePassword = result.data.generatePassword;
+    if (result.data.databases) vars.databases = result.data.databases;
+    
+    const parsedAllowedIps = editAllowedIps.trim()
+      ? editAllowedIps.split(",").map(s => s.trim()).filter(Boolean)
+      : ["0.0.0.0/0"];
+    vars.allowedIps = parsedAllowedIps;
+    
     updateMutation.mutate(vars);
   }
 
-  function handleAddDb(e: React.FormEvent) {
+  function handleReset(e: React.FormEvent) {
     e.preventDefault();
-    if (!addDbTarget) return;
-    const result = AddDatabaseRequestSchema.safeParse({ database: addDbName });
+    if (!resetTarget) return;
+    const result = UpdateUserRequestSchema.safeParse({ password: resetPassword || undefined, generatePassword: resetGenerate });
     if (!result.success) {
-      setAddDbError(result.error.errors[0]?.message ?? "Invalid input");
+      toast.error(result.error.errors[0]?.message ?? "Invalid input");
       return;
     }
-    setAddDbError(null);
-    addDbMutation.mutate({ username: addDbTarget.username, database: result.data.database });
+    const vars: { username: string; password?: string; generatePassword?: boolean } = { username: resetTarget.username };
+    if (result.data.password) vars.password = result.data.password;
+    if (result.data.generatePassword) vars.generatePassword = result.data.generatePassword;
+    
+    updateMutation.mutate(vars);
   }
 
   function handleAuthCreate(e: React.FormEvent) {
@@ -471,27 +443,10 @@ export default function Users() {
                     <TableCell>
                       <div className="flex flex-wrap gap-2">
                         {user.databases.map((db) => (
-                          <Badge key={db} variant="secondary" className="pr-1 cursor-default">
+                          <Badge key={db} variant="secondary" className="cursor-default">
                             {db}
-                            <button
-                              onClick={() => removeDbMutation.mutate({ username: user.username, database: db })}
-                              className="ml-1 rounded-full p-0.5 hover:bg-muted focus:outline-none"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
                           </Badge>
                         ))}
-                        <Badge
-                          variant="outline"
-                          className="cursor-pointer border-dashed hover:bg-accent"
-                          onClick={() => {
-                            setAddDbTarget(user);
-                            setAddDbName("");
-                            setAddDbOpen(true);
-                          }}
-                        >
-                          <Plus className="mr-1 h-3 w-3" /> Add
-                        </Badge>
                       </div>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">
@@ -509,21 +464,22 @@ export default function Users() {
                     <TableCell className="hidden md:table-cell">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
+                        <Button variant="ghost" size="icon" title="Reset Password" onClick={() => {
+                          setResetTarget(user);
+                          setResetPassword("");
+                          setResetGenerate(false);
+                          setResetOpen(true);
+                        }}>
+                          <Key className="h-4 w-4" />
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => {
                           setEditTarget(user);
                           setEditAccess(user.access);
-                          setEditPassword("");
-                          setEditGeneratePassword(false);
+                          setEditDatabases(user.databases || []);
+                          setEditAllowedIps((user.allowedIps ?? ["0.0.0.0/0"]).join(", "));
                           setEditOpen(true);
                         }}>
                           <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" title="Manage allowed IPs" onClick={() => {
-                          setEditIpsTarget(user);
-                          setEditIpsValue((user.allowedIps ?? ["0.0.0.0/0"]).join(", "));
-                          setEditIpsOpen(true);
-                        }}>
-                          <Shield className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon" className="text-destructive" onClick={() => {
                           setDeleteTarget(user);
@@ -738,30 +694,11 @@ export default function Users() {
           </DialogHeader>
           <form onSubmit={handleEdit}>
             <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>New Password (leave blank to keep current)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="password"
-                    placeholder={editGeneratePassword ? "Will be auto-generated on save" : "Leave blank to keep current password"}
-                    value={editPassword}
-                    onChange={(e) => setEditPassword(e.target.value)}
-                    disabled={editGeneratePassword}
-                  />
-                  <Button
-                    type="button"
-                    variant={editGeneratePassword ? "default" : "outline"}
-                    size="icon"
-                    onClick={() => {
-                      setEditGeneratePassword(!editGeneratePassword);
-                      if (!editGeneratePassword) setEditPassword("");
-                    }}
-                    title="Auto-generate password"
-                  >
-                    <Dices className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+              <DbMultiSelect
+                databases={databases || []}
+                selected={editDatabases}
+                onChange={setEditDatabases}
+              />
               <div className="space-y-2">
                 <Label>Access Level</Label>
                 <RadioGroup value={editAccess} onValueChange={(val: any) => setEditAccess(val)} className="grid grid-cols-2 gap-3 pt-2">
@@ -776,6 +713,15 @@ export default function Users() {
                   ))}
                 </RadioGroup>
               </div>
+              <div className="space-y-2">
+                <Label>Allowed IPs <span className="text-xs text-muted-foreground font-normal">(comma-separated, leave blank for 0.0.0.0/0)</span></Label>
+                <input
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                  placeholder="e.g. 203.0.113.5, 10.0.0.0/24"
+                  value={editAllowedIps}
+                  onChange={(e) => setEditAllowedIps(e.target.value)}
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
@@ -785,80 +731,64 @@ export default function Users() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Allowed IPs */}
-      <Dialog open={editIpsOpen} onOpenChange={setEditIpsOpen}>
+      {/* Reset Password */}
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Allowed IPs — {editIpsTarget?.username}</DialogTitle>
-            <DialogDescription>
-              Only these IPs can connect to the database as this user via PgBouncer.
-              Separate multiple IPs or CIDRs with commas. Use <code className="text-xs">0.0.0.0/0</code> to allow any IP.
-            </DialogDescription>
+            <DialogTitle>Reset Password — {resetTarget?.username}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            if (!editIpsTarget) return;
-            const allowedIps = editIpsValue.trim()
-              ? editIpsValue.split(",").map(s => s.trim()).filter(Boolean)
-              : ["0.0.0.0/0"];
-            updateMutation.mutate({ username: editIpsTarget.username, allowedIps }, {
-              onSuccess: () => {
-                toast.success("Allowed IPs updated — PgBouncer firewall reloaded");
-                setEditIpsOpen(false);
-                setEditIpsTarget(null);
-              },
-            });
-          }}>
+          {resetResult ? (
             <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>IPs / CIDRs <span className="text-xs text-muted-foreground font-normal">(comma-separated)</span></Label>
-                <input
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
-                  placeholder="e.g. 203.0.113.5, 10.0.0.0/24"
-                  value={editIpsValue}
-                  onChange={(e) => setEditIpsValue(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Single IPs (without /mask) are treated as /32 (exactly one host).
-                </p>
+              <div className="p-4 border rounded-lg bg-muted/50 space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">New Password</Label>
+                  <div className="flex gap-2">
+                    <Input readOnly value={resetResult} className="font-mono bg-background" />
+                    <Button variant="outline" size="icon" onClick={() => copyText(resetResult)}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-sm text-destructive font-medium">Please copy this password now. You won't be able to see it again!</p>
               </div>
+              <DialogFooter>
+                <Button onClick={() => setResetOpen(false)}>Done</Button>
+              </DialogFooter>
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setEditIpsOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={updateMutation.isPending}>Save &amp; Reload Firewall</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Database Access */}
-      <Dialog open={addDbOpen} onOpenChange={setAddDbOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Database — {addDbTarget?.username}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleAddDb}>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Database</Label>
-                <Select value={addDbName} onValueChange={setAddDbName}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select database" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {databases?.map((d: Database) => (
-                      <SelectItem key={d.name} value={d.name}>{d.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {addDbError && <div className="text-sm text-destructive">{addDbError}</div>}
+          ) : (
+            <form onSubmit={handleReset}>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>New Password</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      placeholder={resetGenerate ? "Will be auto-generated" : "Enter new password"}
+                      value={resetPassword}
+                      onChange={(e) => setResetPassword(e.target.value)}
+                      disabled={resetGenerate}
+                    />
+                    <Button
+                      type="button"
+                      variant={resetGenerate ? "default" : "outline"}
+                      size="icon"
+                      onClick={() => {
+                        setResetGenerate(!resetGenerate);
+                        if (!resetGenerate) setResetPassword("");
+                      }}
+                      title="Auto-generate password"
+                    >
+                      <Dices className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setAddDbOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={addDbMutation.isPending}>Grant Access</Button>
-            </DialogFooter>
-          </form>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setResetOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={updateMutation.isPending}>Reset Password</Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 
