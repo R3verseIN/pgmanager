@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -18,9 +19,9 @@ func (h *Handler) RebuildPgBouncerHBA() {
 
 	// 1. Fetch all managed users and their allowed IPs from pgmanager database
 	rows, err := h.pool.Query(ctx, `
-		SELECT username, MIN(allowed_ips)
+		SELECT DISTINCT ON (username) username, allowed_ips
 		FROM managed_users
-		GROUP BY username
+		ORDER BY username, created_at
 	`)
 	if err != nil {
 		log.Printf("Failed to query allowed_ips for PgBouncer HBA: %v", err)
@@ -44,9 +45,14 @@ func (h *Handler) RebuildPgBouncerHBA() {
 
 	for rows.Next() {
 		var username string
-		var allowedIps []string
-		if err := rows.Scan(&username, &allowedIps); err != nil {
+		var allowedIpsRaw []byte
+		if err := rows.Scan(&username, &allowedIpsRaw); err != nil {
 			log.Printf("Failed to scan allowed_ips: %v", err)
+			continue
+		}
+		var allowedIps []string
+		if err := json.Unmarshal(allowedIpsRaw, &allowedIps); err != nil {
+			log.Printf("Failed to unmarshal allowed_ips for %s: %v", username, err)
 			continue
 		}
 

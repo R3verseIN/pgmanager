@@ -7,58 +7,51 @@ import (
 	"testing"
 )
 
-// generateHBAContent is a helper that invokes the HBA generation logic
-// by pointing hbaFilePath at a temp file, running RebuildPgBouncerHBA,
-// and returning the file contents.
-func generateHBAContent(t *testing.T) string {
+// withTempHBAFile overrides hbaFilePath to a temp file, returns cleanup func and path.
+func withTempHBAFile(t *testing.T) string {
 	t.Helper()
-
 	tmp, err := os.CreateTemp("", "pg_hba_*.conf")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 	tmp.Close()
-	t.Cleanup(func() { os.Remove(tmp.Name()) })
-
-	// Override path so RebuildPgBouncerHBA writes to temp file
 	original := hbaFilePath
 	hbaFilePath = tmp.Name()
-	t.Cleanup(func() { hbaFilePath = original })
-
-	pool := testPool(t)
-	h := New(pool)
-	ctx := context.Background()
-
-	if err := h.InitUserSchema(ctx); err != nil {
-		t.Fatalf("InitUserSchema: %v", err)
-	}
-	// Remove test rows before and after
-	pool.Exec(ctx, "DELETE FROM managed_users WHERE username LIKE 'hbatest_%'")
-	t.Cleanup(func() { pool.Exec(ctx, "DELETE FROM managed_users WHERE username LIKE 'hbatest_%'") })
-
+	t.Cleanup(func() {
+		hbaFilePath = original
+		os.Remove(tmp.Name())
+	})
 	return tmp.Name()
 }
 
-func TestRebuildPgBouncerHBA_DefaultAllowAll(t *testing.T) {
-	tmpPath := generateHBAContent(t)
+func setupHBATest(t *testing.T) (*Handler, context.Context) {
+	t.Helper()
 	pool := testPool(t)
 	h := New(pool)
 	ctx := context.Background()
+	if err := h.InitUserSchema(ctx); err != nil {
+		t.Fatalf("InitUserSchema: %v", err)
+	}
+	pool.Exec(ctx, "DELETE FROM managed_users WHERE username LIKE 'hbatest_%'")
+	t.Cleanup(func() { pool.Exec(ctx, "DELETE FROM managed_users WHERE username LIKE 'hbatest_%'") })
+	return h, ctx
+}
 
-	// Insert a user with the default 0.0.0.0/0 allow-all
-	_, err := pool.Exec(ctx, "INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4)",
-		"hbatest_open", "postgres", "read", []string{"0.0.0.0/0"})
+func TestRebuildPgBouncerHBA_DefaultAllowAll(t *testing.T) {
+	tmpPath := withTempHBAFile(t)
+	h, ctx := setupHBATest(t)
+
+	_, err := h.pool.Exec(ctx,
+		"INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4::jsonb)",
+		"hbatest_open", "postgres", "read", `["0.0.0.0/0"]`)
 	if err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 
 	hbaFilePath = tmpPath
-	h.RebuildPgBouncerHBA() // RELOAD will fail in test env, that's OK
+	h.RebuildPgBouncerHBA()
 
-	content, err := os.ReadFile(tmpPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
+	content, _ := os.ReadFile(tmpPath)
 	got := string(content)
 
 	if !strings.Contains(got, `"hbatest_open" 0.0.0.0/0 scram-sha-256`) {
@@ -70,13 +63,12 @@ func TestRebuildPgBouncerHBA_DefaultAllowAll(t *testing.T) {
 }
 
 func TestRebuildPgBouncerHBA_SpecificIP(t *testing.T) {
-	tmpPath := generateHBAContent(t)
-	pool := testPool(t)
-	h := New(pool)
-	ctx := context.Background()
+	tmpPath := withTempHBAFile(t)
+	h, ctx := setupHBATest(t)
 
-	_, err := pool.Exec(ctx, "INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4)",
-		"hbatest_restricted", "postgres", "read", []string{"203.0.113.5", "10.0.0.0/24"})
+	_, err := h.pool.Exec(ctx,
+		"INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4::jsonb)",
+		"hbatest_restricted", "postgres", "read", `["203.0.113.5","10.0.0.0/24"]`)
 	if err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
@@ -84,13 +76,10 @@ func TestRebuildPgBouncerHBA_SpecificIP(t *testing.T) {
 	hbaFilePath = tmpPath
 	h.RebuildPgBouncerHBA()
 
-	content, err := os.ReadFile(tmpPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
+	content, _ := os.ReadFile(tmpPath)
 	got := string(content)
 
-	// Single IP should get /32 suffix appended
+	// bare IP gets /32 suffix
 	if !strings.Contains(got, `"hbatest_restricted" 203.0.113.5/32 scram-sha-256`) {
 		t.Errorf("expected /32 rule for bare IP, got:\n%s", got)
 	}
@@ -101,14 +90,13 @@ func TestRebuildPgBouncerHBA_SpecificIP(t *testing.T) {
 }
 
 func TestRebuildPgBouncerHBA_EmptyIPs_DefaultsReject(t *testing.T) {
-	tmpPath := generateHBAContent(t)
-	pool := testPool(t)
-	h := New(pool)
-	ctx := context.Background()
+	tmpPath := withTempHBAFile(t)
+	h, ctx := setupHBATest(t)
 
-	// Manually insert with empty allowed_ips slice so we can test reject fallback
-	_, err := pool.Exec(ctx, "INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4)",
-		"hbatest_blocked", "postgres", "read", []string{})
+	// Insert with empty JSON array
+	_, err := h.pool.Exec(ctx,
+		"INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4::jsonb)",
+		"hbatest_blocked", "postgres", "read", `[]`)
 	if err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
@@ -116,10 +104,7 @@ func TestRebuildPgBouncerHBA_EmptyIPs_DefaultsReject(t *testing.T) {
 	hbaFilePath = tmpPath
 	h.RebuildPgBouncerHBA()
 
-	content, err := os.ReadFile(tmpPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
+	content, _ := os.ReadFile(tmpPath)
 	got := string(content)
 
 	if !strings.Contains(got, `"hbatest_blocked" 0.0.0.0/0 reject`) {
@@ -128,17 +113,13 @@ func TestRebuildPgBouncerHBA_EmptyIPs_DefaultsReject(t *testing.T) {
 }
 
 func TestRebuildPgBouncerHBA_InternalRulesAlwaysPresent(t *testing.T) {
-	tmpPath := generateHBAContent(t)
-	pool := testPool(t)
-	h := New(pool)
+	tmpPath := withTempHBAFile(t)
+	h, _ := setupHBATest(t)
 
 	hbaFilePath = tmpPath
 	h.RebuildPgBouncerHBA()
 
-	content, err := os.ReadFile(tmpPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
+	content, _ := os.ReadFile(tmpPath)
 	got := string(content)
 
 	required := []string{

@@ -84,17 +84,18 @@ export async function createUser(
   databases: string[],
   access: "read" | "write" | "ddl" | "full",
   password?: string,
+  allowedIps?: string[],
 ): Promise<CreateUserResult> {
   const data = await request<unknown>("/users", {
     method: "POST",
-    body: JSON.stringify({ username, databases, access, password: password || undefined }),
+    body: JSON.stringify({ username, databases, access, password: password || undefined, allowedIps: allowedIps && allowedIps.length > 0 ? allowedIps : undefined }),
   });
   return CreateUserResponseSchema.parse(data);
 }
 
 export async function updateUser(
   username: string,
-  opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean },
+  opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean; allowedIps?: string[] },
 ): Promise<{ password?: string }> {
   const data = await request<{ password?: string }>(`/users/${encodeURIComponent(username)}`, {
     method: "PUT",

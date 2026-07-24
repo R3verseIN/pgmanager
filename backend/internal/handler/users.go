@@ -110,7 +110,7 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 			username      TEXT NOT NULL,
 			database_name TEXT NOT NULL,
 			access        TEXT NOT NULL CHECK (access IN ('read', 'write', 'ddl', 'full')),
-			allowed_ips   TEXT[] NOT NULL DEFAULT ARRAY['0.0.0.0/0']::TEXT[],
+			allowed_ips   JSONB NOT NULL DEFAULT '["0.0.0.0/0"]'::jsonb,
 			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (username, database_name)
 		);
@@ -122,7 +122,8 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 	_, err = h.pool.Exec(ctx, `
 		ALTER TABLE managed_users DROP CONSTRAINT IF EXISTS managed_users_pkey;
 		ALTER TABLE managed_users ADD PRIMARY KEY (username, database_name);
-		ALTER TABLE managed_users ADD COLUMN IF NOT EXISTS allowed_ips TEXT[] NOT NULL DEFAULT ARRAY['0.0.0.0/0']::TEXT[];
+		ALTER TABLE managed_users
+			ADD COLUMN IF NOT EXISTS allowed_ips JSONB NOT NULL DEFAULT '["0.0.0.0/0"]'::jsonb;
 	`)
 	if err != nil {
 		return err
@@ -205,7 +206,7 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT u.username, MIN(u.access) AS access, MAX(u.created_at) AS created_at,
 			ARRAY_AGG(u.database_name) AS databases,
-			MIN(u.allowed_ips) AS allowed_ips
+			(SELECT allowed_ips FROM managed_users WHERE username = u.username LIMIT 1) AS allowed_ips
 		FROM managed_users u
 		INNER JOIN pg_catalog.pg_roles r ON r.rolname = u.username
 		GROUP BY u.username
@@ -221,11 +222,13 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u userRecord
 		var createdAt time.Time
-		if err := rows.Scan(&u.Username, &u.Access, &createdAt, &u.Databases, &u.AllowedIps); err != nil {
+		var allowedIpsRaw []byte
+		if err := rows.Scan(&u.Username, &u.Access, &createdAt, &u.Databases, &allowedIpsRaw); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to scan row")
 			return
 		}
 		u.CreatedAt = createdAt.Format(time.RFC3339)
+		_ = json.Unmarshal(allowedIpsRaw, &u.AllowedIps)
 		users = append(users, u)
 	}
 
@@ -313,9 +316,10 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		if len(req.AllowedIps) == 0 {
 			req.AllowedIps = []string{"0.0.0.0/0"}
 		}
+		ipsJSON, _ := json.Marshal(req.AllowedIps)
 		_, err = h.pool.Exec(ctx,
-			"INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4)",
-			req.Username, db, req.Access, req.AllowedIps,
+			"INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4::jsonb)",
+			req.Username, db, req.Access, string(ipsJSON),
 		)
 		if err != nil {
 			h.rollbackUser(ctx, req.Username)
@@ -429,7 +433,8 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(req.AllowedIps) > 0 {
-		_, err = h.pool.Exec(ctx, "UPDATE managed_users SET allowed_ips = $1 WHERE username = $2", req.AllowedIps, username)
+		ipsJSON, _ := json.Marshal(req.AllowedIps)
+		_, err = h.pool.Exec(ctx, "UPDATE managed_users SET allowed_ips = $1::jsonb WHERE username = $2", string(ipsJSON), username)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update allowed_ips: "+err.Error())
 			return

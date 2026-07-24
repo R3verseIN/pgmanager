@@ -26,6 +26,7 @@ export const UserSchema = z.object({
   username: z.string(),
   databases: z.array(z.string()),
   access: z.enum(["read", "write", "ddl", "full"]),
+  allowedIps: z.array(z.string()).default(["0.0.0.0/0"]),
   createdAt: z.string(),
 });
 
@@ -51,6 +52,7 @@ export const CreateUserResponseSchema = z.object({
   databases: z.array(z.string()),
   connectionString: z.string(),
   access: z.enum(["read", "write", "ddl", "full"]),
+  allowedIps: z.array(z.string()).default(["0.0.0.0/0"]),
   createdAt: z.string(),
 });
 
@@ -58,6 +60,7 @@ export const UpdateUserRequestSchema = z.object({
   password: z.string().optional(),
   access: z.enum(["read", "write", "ddl", "full"]).optional(),
   generatePassword: z.boolean().optional(),
+  allowedIps: z.array(z.string()).optional(),
 });
 
 export const AddDatabaseRequestSchema = z.object({

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2, RefreshCw, Copy, Edit, Key, Dices } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Copy, Edit, Key, Dices, Shield } from "lucide-react";
 import {
   fetchUsers,
   fetchDatabases,
@@ -159,6 +159,12 @@ export default function Users() {
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
+  // Allowed IPs state
+  const [formAllowedIps, setFormAllowedIps] = useState("");
+  const [editIpsOpen, setEditIpsOpen] = useState(false);
+  const [editIpsTarget, setEditIpsTarget] = useState<User | null>(null);
+  const [editIpsValue, setEditIpsValue] = useState("");
+
   // Auth Users State
   const [authCreateOpen, setAuthCreateOpen] = useState(false);
   const [authCreateUsername, setAuthCreateUsername] = useState("");
@@ -184,8 +190,8 @@ export default function Users() {
 
   // Postgres User Mutations
   const createMutation = useMutation({
-    mutationFn: (vars: { username: string; databases: string[]; access: "read" | "write" | "ddl" | "full"; password?: string }) =>
-      createUser(vars.username, vars.databases, vars.access, vars.password),
+    mutationFn: (vars: { username: string; databases: string[]; access: "read" | "write" | "ddl" | "full"; password?: string; allowedIps?: string[] }) =>
+      createUser(vars.username, vars.databases, vars.access, vars.password, vars.allowedIps),
     onSuccess: (data) => {
       toast.success("User created successfully");
       setCreateOpen(false);
@@ -206,11 +212,12 @@ export default function Users() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean }) => {
-      const opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean } = {};
+    mutationFn: (vars: { username: string; password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean; allowedIps?: string[] }) => {
+      const opts: { password?: string; access?: "read" | "write" | "ddl" | "full"; generatePassword?: boolean; allowedIps?: string[] } = {};
       if (vars.password) opts.password = vars.password;
       if (vars.access) opts.access = vars.access;
       if (vars.generatePassword) opts.generatePassword = vars.generatePassword;
+      if (vars.allowedIps) opts.allowedIps = vars.allowedIps;
       return updateUser(vars.username, opts);
     },
     onSuccess: (data, vars) => {
@@ -309,6 +316,7 @@ export default function Users() {
     setFormDbs([]);
     setFormUsername("");
     setFormAccess("write");
+    setFormAllowedIps("");
     setFormError(null);
   }
 
@@ -320,7 +328,19 @@ export default function Users() {
       return;
     }
     setFormError(null);
-    createMutation.mutate({ username: result.data.username, databases: result.data.databases, access: result.data.access });
+    const allowedIps = formAllowedIps.trim()
+      ? formAllowedIps.split(",").map(s => s.trim()).filter(Boolean)
+      : undefined;
+    
+    const vars: { username: string; databases: string[]; access: "read" | "write" | "ddl" | "full"; allowedIps?: string[] } = {
+      username: result.data.username,
+      databases: result.data.databases,
+      access: result.data.access,
+    };
+    if (allowedIps) {
+      vars.allowedIps = allowedIps;
+    }
+    createMutation.mutate(vars);
   }
 
   function handleEdit(e: React.FormEvent) {
@@ -426,6 +446,7 @@ export default function Users() {
                 <TableHead>Username</TableHead>
                 <TableHead>Databases</TableHead>
                 <TableHead className="hidden sm:table-cell">Access</TableHead>
+                <TableHead className="hidden lg:table-cell">Allowed IPs</TableHead>
                 <TableHead className="hidden md:table-cell">Created</TableHead>
                 <TableHead className="w-25"></TableHead>
               </TableRow>
@@ -476,6 +497,15 @@ export default function Users() {
                     <TableCell className="hidden sm:table-cell">
                       <Badge variant={accessColors[user.access]}>{user.access.toUpperCase()}</Badge>
                     </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <div className="flex flex-wrap gap-1">
+                        {(user.allowedIps ?? ["0.0.0.0/0"]).map((ip) => (
+                          <Badge key={ip} variant={ip === "0.0.0.0/0" ? "outline" : "secondary"} className="text-xs font-mono">
+                            {ip === "0.0.0.0/0" ? "any" : ip}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
                     <TableCell className="hidden md:table-cell">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
@@ -487,6 +517,13 @@ export default function Users() {
                           setEditOpen(true);
                         }}>
                           <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" title="Manage allowed IPs" onClick={() => {
+                          setEditIpsTarget(user);
+                          setEditIpsValue((user.allowedIps ?? ["0.0.0.0/0"]).join(", "));
+                          setEditIpsOpen(true);
+                        }}>
+                          <Shield className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon" className="text-destructive" onClick={() => {
                           setDeleteTarget(user);
@@ -638,6 +675,15 @@ export default function Users() {
                 selected={formDbs}
                 onChange={setFormDbs}
               />
+              <div className="space-y-2">
+                <Label>Allowed IPs <span className="text-xs text-muted-foreground font-normal">(comma-separated, leave blank for 0.0.0.0/0)</span></Label>
+                <input
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                  placeholder="e.g. 203.0.113.5, 10.0.0.0/24"
+                  value={formAllowedIps}
+                  onChange={(e) => setFormAllowedIps(e.target.value)}
+                />
+              </div>
               {formError && <div className="text-sm text-destructive">{formError}</div>}
             </div>
             <DialogFooter>
@@ -734,6 +780,52 @@ export default function Users() {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={updateMutation.isPending}>Save</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Allowed IPs */}
+      <Dialog open={editIpsOpen} onOpenChange={setEditIpsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Allowed IPs — {editIpsTarget?.username}</DialogTitle>
+            <DialogDescription>
+              Only these IPs can connect to the database as this user via PgBouncer.
+              Separate multiple IPs or CIDRs with commas. Use <code className="text-xs">0.0.0.0/0</code> to allow any IP.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            if (!editIpsTarget) return;
+            const allowedIps = editIpsValue.trim()
+              ? editIpsValue.split(",").map(s => s.trim()).filter(Boolean)
+              : ["0.0.0.0/0"];
+            updateMutation.mutate({ username: editIpsTarget.username, allowedIps }, {
+              onSuccess: () => {
+                toast.success("Allowed IPs updated — PgBouncer firewall reloaded");
+                setEditIpsOpen(false);
+                setEditIpsTarget(null);
+              },
+            });
+          }}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>IPs / CIDRs <span className="text-xs text-muted-foreground font-normal">(comma-separated)</span></Label>
+                <input
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                  placeholder="e.g. 203.0.113.5, 10.0.0.0/24"
+                  value={editIpsValue}
+                  onChange={(e) => setEditIpsValue(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Single IPs (without /mask) are treated as /32 (exactly one host).
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditIpsOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={updateMutation.isPending}>Save &amp; Reload Firewall</Button>
             </DialogFooter>
           </form>
         </DialogContent>
