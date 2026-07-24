@@ -158,11 +158,23 @@ export async function changePassword(currentPassword: string, newPassword: strin
   });
 }
 
-export async function createAuthUser(username: string, password: string, role: "admin" | "dev" | "viewer", databases?: string[]): Promise<void> {
-  await request<unknown>("/auth/users", {
+export interface CreateAuthUserResult {
+  status: string;
+  username: string;
+  password: string;
+}
+
+export async function createAuthUser(
+  username: string,
+  password: string,
+  role: "admin" | "dev" | "viewer",
+  databases?: string[]
+): Promise<CreateAuthUserResult> {
+  const data = await request<CreateAuthUserResult>("/auth/users", {
     method: "POST",
-    body: JSON.stringify({ username, password, role, databases: databases || undefined }),
+    body: JSON.stringify({ username, password: password || undefined, role, databases: databases || undefined }),
   });
+  return data;
 }
 
 export async function updateAuthUser(username: string, role: "admin" | "dev" | "viewer", databases?: string[]): Promise<void> {

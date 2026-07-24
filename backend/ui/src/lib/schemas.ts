@@ -105,7 +105,7 @@ export const ChangePasswordRequestSchema = z.object({
 
 export const CreateAuthUserRequestSchema = z.object({
   username: z.string().min(3, "username must be at least 3 characters"),
-  password: z.string().min(8, "password must be at least 8 characters"),
+  password: z.string().min(8, "password must be at least 8 characters").optional(),
   role: z.enum(["admin", "dev", "viewer"]),
   databases: z.array(z.string()).optional(),
 });

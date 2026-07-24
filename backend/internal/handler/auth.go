@@ -287,13 +287,17 @@ func (h *AuthHandler) CreateAuthUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid username: must start with letter or underscore, alphanumeric only")
 		return
 	}
-	if len(req.Password) < 8 {
-		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
-		return
-	}
-	if len(req.Password) > 72 {
-		writeError(w, http.StatusBadRequest, "password must be at most 72 characters")
-		return
+	if req.Password != "" {
+		if len(req.Password) < 8 {
+			writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
+			return
+		}
+		if len(req.Password) > 72 {
+			writeError(w, http.StatusBadRequest, "password must be at most 72 characters")
+			return
+		}
+	} else {
+		req.Password = GeneratePassword(16)
 	}
 	if req.Role != "admin" && req.Role != "dev" && req.Role != "viewer" {
 		writeError(w, http.StatusBadRequest, "role must be admin, dev, or viewer")
@@ -361,7 +365,11 @@ func (h *AuthHandler) CreateAuthUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]string{"status": "created"})
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"status":   "created",
+		"username": req.Username,
+		"password": req.Password,
+	})
 
 	adminUser := auth.GetUserFromContext(r.Context())
 	adminUsername := ""

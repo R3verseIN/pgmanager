@@ -257,7 +257,7 @@ export default function Users() {
   const createAuthMutation = useMutation({
     mutationFn: (vars: { username: string; password?: string; role: "admin" | "dev" | "viewer"; databases?: string[] }) =>
       createAuthUser(vars.username, vars.password || "", vars.role, vars.databases),
-    onSuccess: (_data, vars) => {
+    onSuccess: (data) => {
       toast.success("Auth user created");
       setAuthCreateOpen(false);
       setAuthCreateUsername("");
@@ -266,9 +266,7 @@ export default function Users() {
       setAuthCreateDatabases([]);
       setAuthCreateError(null);
       queryClient.invalidateQueries({ queryKey: ["authUsers"] });
-      if (vars.password) {
-        setAuthShowCreds({ username: vars.username, password: vars.password });
-      }
+      setAuthShowCreds({ username: data.username, password: data.password });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -690,21 +688,7 @@ export default function Users() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>New Password (leave blank to keep current)</Label>
-                <div className="flex gap-2">
-                  <Input type="text" placeholder="8-128 chars" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      const rand = Array.from(crypto.getRandomValues(new Uint8Array(12)))
-                        .map((b) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[b % 62])
-                        .join("");
-                      setEditPassword(rand);
-                    }}
-                  >
-                    Generate
-                  </Button>
-                </div>
+                <Input type="password" placeholder="Leave blank to keep current password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Access Level</Label>
@@ -773,8 +757,8 @@ export default function Users() {
                 <Input placeholder="e.g. admin_user" value={authCreateUsername} onChange={(e) => setAuthCreateUsername(e.target.value)} required />
               </div>
               <div className="space-y-2">
-                <Label>Password (leave empty to auto-generate)</Label>
-                <Input type="password" placeholder="password" value={authCreatePassword} onChange={(e) => setAuthCreatePassword(e.target.value)} />
+                <Label>Password (Optional)</Label>
+                <Input type="password" placeholder="Leave blank to auto-generate password" value={authCreatePassword} onChange={(e) => setAuthCreatePassword(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Role</Label>
@@ -920,27 +904,13 @@ export default function Users() {
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="auth-reset-password">New Password (Optional)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="auth-reset-password"
-                    placeholder="Leave blank to generate randomly"
-                    type="text"
-                    value={authResetInput}
-                    onChange={(e) => setAuthResetInput(e.target.value)}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      const rand = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-                        .map((b) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[b % 62])
-                        .join("");
-                      setAuthResetInput(rand);
-                    }}
-                  >
-                    Generate
-                  </Button>
-                </div>
+                <Input
+                  id="auth-reset-password"
+                  placeholder="Leave blank to auto-generate password"
+                  type="password"
+                  value={authResetInput}
+                  onChange={(e) => setAuthResetInput(e.target.value)}
+                />
               </div>
             </div>
           )}
