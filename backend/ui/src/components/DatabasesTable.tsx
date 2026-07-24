@@ -1,20 +1,40 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Table, Button, Modal, Input, App } from "antd";
-import { PlusOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
+import { toast } from "sonner";
+import { Plus, Trash2, RefreshCw, Eye, EyeOff } from "lucide-react";
 import { fetchDatabases, createDatabase, deleteDatabase } from "../api/client";
 import { CreateDatabaseSchema } from "../lib/schemas";
 import type { Database } from "../lib/schemas";
 import { useAuth } from "../contexts/AuthContext";
 
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "./ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+
 export default function DatabasesTable() {
   const [showSystem, setShowSystem] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
-  const { message } = App.useApp();
   const { isAdmin } = useAuth();
 
   const { data: databases, isLoading, refetch } = useQuery({
@@ -25,136 +45,193 @@ export default function DatabasesTable() {
   const createMutation = useMutation({
     mutationFn: (name: string) => createDatabase(name),
     onSuccess: () => {
-      message.success("database created");
+      toast.success("Database created");
       setCreateOpen(false);
       setNewName("");
       setNameError(null);
       queryClient.invalidateQueries({ queryKey: ["databases"] });
     },
     onError: (error: Error) => {
-      message.error(error.message);
+      toast.error(error.message);
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (name: string) => deleteDatabase(name),
     onSuccess: () => {
-      message.success("database deleted");
+      toast.success("Database deleted");
+      setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ["databases"] });
     },
     onError: (error: Error) => {
-      message.error(error.message);
+      toast.error(error.message);
+      setDeleteTarget(null);
     },
   });
 
-  function handleCreate() {
+  function handleCreate(e?: React.FormEvent) {
+    e?.preventDefault();
     const result = CreateDatabaseSchema.safeParse({ name: newName });
     if (!result.success) {
       const firstError = result.error.errors[0];
-      setNameError(firstError?.message ?? "invalid name");
+      setNameError(firstError?.message ?? "Invalid name");
       return;
     }
     setNameError(null);
     createMutation.mutate(result.data.name);
   }
 
-  function handleDelete(name: string) {
-    Modal.confirm({
-      title: "Delete database",
-      content: `Are you sure you want to delete "${name}"? This cannot be undone.`,
-      okText: "Delete",
-      okType: "danger",
-      onOk: () => deleteMutation.mutate(name),
-    });
-  }
-
-  const columns = [
-    {
-      title: "Name",
-      dataIndex: "name",
-      key: "name",
-      sorter: (a: Database, b: Database) => a.name.localeCompare(b.name),
-    },
-    ...(isAdmin
-      ? [
-          {
-            title: "",
-            key: "actions",
-            width: 48,
-            render: (_: unknown, record: Database): ReactNode => (
-              <Button
-                type="text"
-                danger
-                icon={<DeleteOutlined />}
-                disabled={record.protected}
-                onClick={() => handleDelete(record.name)}
-              />
-            ),
-          },
-        ]
-      : []),
-  ];
-
   return (
-    <div>
-      <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
         {isAdmin && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
             Create Database
           </Button>
         )}
         <Button
-          icon={showSystem ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          variant="outline"
           onClick={() => setShowSystem((prev) => !prev)}
         >
+          {showSystem ? (
+            <EyeOff className="mr-2 h-4 w-4" />
+          ) : (
+            <Eye className="mr-2 h-4 w-4" />
+          )}
           {showSystem ? "Hide System" : "Show System"}
         </Button>
-        <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
+        <Button variant="outline" onClick={() => refetch()}>
+          <RefreshCw className="mr-2 h-4 w-4" />
           Refresh
         </Button>
       </div>
 
-      <Table
-        dataSource={databases}
-        columns={columns}
-        rowKey="name"
-        loading={isLoading}
-        pagination={false}
-        size="small"
-        bordered={false}
-        rowClassName={(_, index) => (index % 2 === 0 ? "row-even" : "row-odd")}
-        style={{ fontSize: 13 }}
-      />
+      <div className="rounded-md border border-border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              {isAdmin && <TableHead className="w-[80px]"></TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell
+                  colSpan={isAdmin ? 2 : 1}
+                  className="h-24 text-center text-muted-foreground"
+                >
+                  Loading...
+                </TableCell>
+              </TableRow>
+            ) : !databases?.length ? (
+              <TableRow>
+                <TableCell
+                  colSpan={isAdmin ? 2 : 1}
+                  className="h-24 text-center text-muted-foreground"
+                >
+                  No databases found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              databases.map((db: Database) => (
+                <TableRow key={db.name}>
+                  <TableCell className="font-medium">{db.name}</TableCell>
+                  {isAdmin && (
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        disabled={db.protected}
+                        onClick={() => setDeleteTarget(db.name)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
-      <Modal
-        title="Create Database"
-        open={createOpen}
-        onOk={handleCreate}
-        onCancel={() => {
-          setCreateOpen(false);
-          setNewName("");
-          setNameError(null);
-        }}
-        confirmLoading={createMutation.isPending}
-      >
-        <div style={{ marginTop: 8 }}>
-          <Input
-            placeholder="database name"
-            value={newName}
-            onChange={(e) => {
-              setNewName(e.target.value);
-              setNameError(null);
-            }}
-            onPressEnter={handleCreate}
-            status={nameError !== null ? "error" : ""}
-          />
-          {nameError !== null && (
-            <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>
-              {nameError}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Database</DialogTitle>
+            <DialogDescription>
+              Create a new PostgreSQL database instance.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreate}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="dbname">Database Name</Label>
+                <Input
+                  id="dbname"
+                  placeholder="e.g. staging_db"
+                  value={newName}
+                  onChange={(e) => {
+                    setNewName(e.target.value);
+                    setNameError(null);
+                  }}
+                  autoFocus
+                />
+                {nameError && (
+                  <p className="text-sm text-destructive">{nameError}</p>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      </Modal>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createMutation.isPending}>
+                Create
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Database</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{deleteTarget}"? This cannot be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
