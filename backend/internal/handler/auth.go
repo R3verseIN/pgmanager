@@ -282,7 +282,7 @@ func (h *AuthHandler) CreateAuthUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
-	username := r.PathValue("username")
+	username := strings.TrimPrefix(r.URL.Path, "/api/auth/users/")
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username is required")
 		return
@@ -300,13 +300,27 @@ func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var id int
+	var currentRole string
 	err := h.pool.QueryRow(r.Context(),
-		"SELECT id FROM auth_users WHERE username = $1",
+		"SELECT id, role FROM auth_users WHERE username = $1",
 		username,
-	).Scan(&id)
+	).Scan(&id, &currentRole)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
+	}
+
+	if currentRole == "admin" && req.Role == "viewer" {
+		var adminCount int
+		err = h.pool.QueryRow(r.Context(), "SELECT COUNT(*) FROM auth_users WHERE role = 'admin'").Scan(&adminCount)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to check admin count")
+			return
+		}
+		if adminCount <= 1 {
+			writeError(w, http.StatusBadRequest, "cannot change role of the last admin")
+			return
+		}
 	}
 
 	_, err = h.pool.Exec(r.Context(),
@@ -322,7 +336,7 @@ func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) DeleteAuthUser(w http.ResponseWriter, r *http.Request) {
-	username := r.PathValue("username")
+	username := strings.TrimPrefix(r.URL.Path, "/api/auth/users/")
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username is required")
 		return
@@ -346,4 +360,80 @@ func (h *AuthHandler) DeleteAuthUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+type authUserListItem struct {
+	ID        int    `json:"id"`
+	Username  string `json:"username"`
+	Role      string `json:"role"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (h *AuthHandler) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.pool.Query(r.Context(), "SELECT id, username, role, created_at::text FROM auth_users ORDER BY id")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list users")
+		return
+	}
+	defer rows.Close()
+
+	var users []authUserListItem
+	for rows.Next() {
+		var u authUserListItem
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.CreatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to scan user")
+			return
+		}
+		users = append(users, u)
+	}
+	if users == nil {
+		users = []authUserListItem{}
+	}
+	writeJSON(w, http.StatusOK, users)
+}
+
+func (h *AuthHandler) ResetAuthUserPassword(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	prefix := "/api/auth/users/"
+	suffix := "/reset-password"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		writeError(w, http.StatusBadRequest, "invalid path")
+		return
+	}
+	username := strings.TrimPrefix(path, prefix)
+	username = strings.TrimSuffix(username, suffix)
+	if username == "" {
+		writeError(w, http.StatusBadRequest, "username is required")
+		return
+	}
+
+	var id int
+	err := h.pool.QueryRow(r.Context(),
+		"SELECT id FROM auth_users WHERE username = $1",
+		username,
+	).Scan(&id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	newPassword := GeneratePassword(16)
+	hash, err := auth.HashPassword(newPassword)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to hash password")
+		return
+	}
+
+	_, err = h.pool.Exec(r.Context(),
+		"UPDATE auth_users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+		hash, id,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update password")
+		return
+	}
+
+	auth.DeleteUserSessions(r.Context(), h.pool, id)
+
+	writeJSON(w, http.StatusOK, map[string]string{"password": newPassword})
 }

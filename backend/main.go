@@ -119,6 +119,14 @@ func main() {
 			ah.DeleteAuthUser(w, r)
 			return
 		}
+		if method == "GET" && path == "/api/auth/users" {
+			ah.ListAuthUsers(w, r)
+			return
+		}
+		if method == "POST" && strings.HasSuffix(path, "/reset-password") {
+			ah.ResetAuthUserPassword(w, r)
+			return
+		}
 		if method == "POST" && path == "/api/databases" {
 			h.CreateDatabase(w, r)
 			return

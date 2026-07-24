@@ -82,6 +82,21 @@ export type AuthUser = z.infer<typeof AuthUserSchema>;
 
 export const AuthUsersResponseSchema = z.array(AuthUserSchema);
 
+export const AuthUserListItemSchema = z.object({
+  id: z.number(),
+  username: z.string(),
+  role: z.enum(["admin", "viewer"]),
+  createdAt: z.string(),
+});
+
+export type AuthUserListItem = z.infer<typeof AuthUserListItemSchema>;
+
+export const AuthUserListResponseSchema = z.array(AuthUserListItemSchema);
+
+export const ResetPasswordResponseSchema = z.object({
+  password: z.string(),
+});
+
 export const ChangePasswordRequestSchema = z.object({
   current_password: z.string().min(1, "current password is required"),
   new_password: z.string().min(8, "new password must be at least 8 characters"),

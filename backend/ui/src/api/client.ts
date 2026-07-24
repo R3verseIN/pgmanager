@@ -4,8 +4,10 @@ import {
   UsersResponseSchema,
   CreateUserResponseSchema,
   DatabaseSchema,
+  AuthUserListResponseSchema,
+  ResetPasswordResponseSchema,
 } from "../lib/schemas";
-import type { Database, User } from "../lib/schemas";
+import type { Database, User, AuthUserListItem } from "../lib/schemas";
 
 const BASE_URL = "/api";
 
@@ -168,4 +170,17 @@ export async function deleteAuthUser(username: string): Promise<void> {
   await request<void>(`/auth/users/${encodeURIComponent(username)}`, {
     method: "DELETE",
   });
+}
+
+export async function fetchAuthUsers(): Promise<AuthUserListItem[]> {
+  const data = await request<unknown>("/auth/users");
+  return AuthUserListResponseSchema.parse(data);
+}
+
+export async function resetAuthUserPassword(username: string): Promise<string> {
+  const data = await request<unknown>(`/auth/users/${encodeURIComponent(username)}/reset-password`, {
+    method: "POST",
+  });
+  const parsed = ResetPasswordResponseSchema.parse(data);
+  return parsed.password;
 }

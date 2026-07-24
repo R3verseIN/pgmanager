@@ -43,7 +43,7 @@ type addDatabaseRequest struct {
 	Database string `json:"database"`
 }
 
-func generatePassword(length int) string {
+func GeneratePassword(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	password := make([]byte, length)
 	for i := range password {
@@ -191,7 +191,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		password = generatePassword(16)
+		password = GeneratePassword(16)
 	}
 
 	var roleExists bool

@@ -27,9 +27,14 @@ import {
   updateUser,
   addUserDatabase,
   removeUserDatabase,
+  fetchAuthUsers,
+  createAuthUser,
+  updateAuthUser,
+  deleteAuthUser,
+  resetAuthUserPassword,
 } from "../api/client";
-import { CreateUserRequestSchema, UpdateUserRequestSchema, AddDatabaseRequestSchema } from "../lib/schemas";
-import type { User } from "../lib/schemas";
+import { CreateUserRequestSchema, UpdateUserRequestSchema, AddDatabaseRequestSchema, CreateAuthUserRequestSchema } from "../lib/schemas";
+import type { User, AuthUserListItem } from "../lib/schemas";
 
 export default function Users() {
   const [createOpen, setCreateOpen] = useState(false);
@@ -47,6 +52,19 @@ export default function Users() {
   const [addDbName, setAddDbName] = useState("");
   const [addDbError, setAddDbError] = useState<string | null>(null);
 
+  const [authCreateOpen, setAuthCreateOpen] = useState(false);
+  const [authCreateUsername, setAuthCreateUsername] = useState("");
+  const [authCreatePassword, setAuthCreatePassword] = useState("");
+  const [authCreateRole, setAuthCreateRole] = useState<"admin" | "viewer">("viewer");
+  const [authCreateError, setAuthCreateError] = useState<string | null>(null);
+  const [authShowCreds, setAuthShowCreds] = useState<{ username: string; password: string } | null>(null);
+  const [authEditOpen, setAuthEditOpen] = useState(false);
+  const [authEditTarget, setAuthEditTarget] = useState<AuthUserListItem | null>(null);
+  const [authEditRole, setAuthEditRole] = useState<"admin" | "viewer">("viewer");
+  const [authResetOpen, setAuthResetOpen] = useState(false);
+  const [authResetTarget, setAuthResetTarget] = useState<AuthUserListItem | null>(null);
+  const [authResetPassword, setAuthResetPassword] = useState<string | null>(null);
+
   const queryClient = useQueryClient();
   const { message } = App.useApp();
 
@@ -58,6 +76,68 @@ export default function Users() {
   const { data: databases } = useQuery({
     queryKey: ["databases"],
     queryFn: () => fetchDatabases(false),
+  });
+
+  const { data: authUsers, isLoading: authLoading } = useQuery({
+    queryKey: ["authUsers"],
+    queryFn: fetchAuthUsers,
+  });
+
+  const createAuthMutation = useMutation({
+    mutationFn: (vars: { username: string; password?: string; role: "admin" | "viewer" }) =>
+      createAuthUser(vars.username, vars.password || "", vars.role),
+    onSuccess: (_data, vars) => {
+      message.success("auth user created");
+      setAuthCreateOpen(false);
+      setAuthCreateUsername("");
+      setAuthCreatePassword("");
+      setAuthCreateRole("viewer");
+      setAuthCreateError(null);
+      queryClient.invalidateQueries({ queryKey: ["authUsers"] });
+      if (vars.password) {
+        setAuthShowCreds({ username: vars.username, password: vars.password });
+      }
+    },
+    onError: (error: Error) => {
+      message.error(error.message);
+    },
+  });
+
+  const updateAuthMutation = useMutation({
+    mutationFn: (vars: { username: string; role: "admin" | "viewer" }) =>
+      updateAuthUser(vars.username, vars.role),
+    onSuccess: () => {
+      message.success("auth user updated");
+      setAuthEditOpen(false);
+      setAuthEditTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["authUsers"] });
+    },
+    onError: (error: Error) => {
+      message.error(error.message);
+    },
+  });
+
+  const deleteAuthMutation = useMutation({
+    mutationFn: (username: string) => deleteAuthUser(username),
+    onSuccess: () => {
+      message.success("auth user deleted");
+      queryClient.invalidateQueries({ queryKey: ["authUsers"] });
+    },
+    onError: (error: Error) => {
+      message.error(error.message);
+    },
+  });
+
+  const resetAuthMutation = useMutation({
+    mutationFn: (username: string) => resetAuthUserPassword(username),
+    onSuccess: (password) => {
+      message.success("password reset");
+      setAuthResetPassword(password);
+      queryClient.invalidateQueries({ queryKey: ["authUsers"] });
+    },
+    onError: (error: Error) => {
+      message.error(error.message);
+    },
   });
 
   const createMutation = useMutation({
@@ -220,6 +300,44 @@ export default function Users() {
       okType: "danger",
       onOk: () => removeDbMutation.mutate({ username, database }),
     });
+  }
+
+  function handleAuthCreate() {
+    const result = CreateAuthUserRequestSchema.safeParse({
+      username: authCreateUsername,
+      password: authCreatePassword || undefined,
+      role: authCreateRole,
+    });
+    if (!result.success) {
+      setAuthCreateError(result.error.errors[0]?.message ?? "invalid input");
+      return;
+    }
+    setAuthCreateError(null);
+    createAuthMutation.mutate({
+      username: result.data.username,
+      password: result.data.password,
+      role: result.data.role,
+    });
+  }
+
+  function handleAuthEdit() {
+    if (!authEditTarget) return;
+    updateAuthMutation.mutate({ username: authEditTarget.username, role: authEditRole });
+  }
+
+  function handleAuthDelete(username: string) {
+    Modal.confirm({
+      title: "Delete auth user",
+      content: `Are you sure you want to delete "${username}"? They will be logged out immediately.`,
+      okText: "Delete",
+      okType: "danger",
+      onOk: () => deleteAuthMutation.mutate(username),
+    });
+  }
+
+  function handleAuthReset() {
+    if (!authResetTarget) return;
+    resetAuthMutation.mutate(authResetTarget.username);
   }
 
   function copyText(text: string) {
@@ -512,6 +630,261 @@ export default function Users() {
           />
           {addDbError !== null && (
             <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>{addDbError}</div>
+          )}
+        </div>
+      </Modal>
+
+      {/* Auth Users Section */}
+      <div style={{ marginTop: 48 }}>
+        <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setAuthCreateOpen(true)}
+          >
+            Create Auth User
+          </Button>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => queryClient.invalidateQueries({ queryKey: ["authUsers"] })}
+          >
+            Refresh
+          </Button>
+        </div>
+
+        <Table
+          dataSource={authUsers}
+          columns={[
+            {
+              title: "Username",
+              dataIndex: "username",
+              key: "username",
+            },
+            {
+              title: "Role",
+              dataIndex: "role",
+              key: "role",
+              render: (role: string): ReactNode => (
+                <Tag color={role === "admin" ? "#ff4d4f" : "#888"}>
+                  {role.toUpperCase()}
+                </Tag>
+              ),
+            },
+            {
+              title: "Created",
+              dataIndex: "createdAt",
+              key: "createdAt",
+              render: (v: string): ReactNode => new Date(v).toLocaleDateString(),
+            },
+            {
+              title: "",
+              key: "authActions",
+              width: 120,
+              render: (_: unknown, record: AuthUserListItem): ReactNode => (
+                <div style={{ display: "flex", gap: 4 }}>
+                  <Button
+                    type="text"
+                    icon={<EditOutlined />}
+                    onClick={() => {
+                      setAuthEditTarget(record);
+                      setAuthEditRole(record.role);
+                      setAuthEditOpen(true);
+                    }}
+                  />
+                  <Tooltip title="Reset password">
+                    <Button
+                      type="text"
+                      icon={<ReloadOutlined />}
+                      onClick={() => {
+                        setAuthResetTarget(record);
+                        setAuthResetPassword(null);
+                        setAuthResetOpen(true);
+                      }}
+                    />
+                  </Tooltip>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() => handleAuthDelete(record.username)}
+                  />
+                </div>
+              ),
+            },
+          ]}
+          rowKey="id"
+          loading={authLoading}
+          pagination={false}
+          size="small"
+          bordered={false}
+          rowClassName={(_, index) => (index % 2 === 0 ? "row-even" : "row-odd")}
+          style={{ fontSize: 13 }}
+        />
+      </div>
+
+      <Modal
+        title="Create Auth User"
+        open={authCreateOpen}
+        onOk={handleAuthCreate}
+        onCancel={() => {
+          setAuthCreateOpen(false);
+          setAuthCreateUsername("");
+          setAuthCreatePassword("");
+          setAuthCreateRole("viewer");
+          setAuthCreateError(null);
+        }}
+        confirmLoading={createAuthMutation.isPending}
+      >
+        <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 4, fontSize: 13, color: "#ccc" }}>
+              Username
+            </label>
+            <Input
+              placeholder="e.g. admin_user"
+              value={authCreateUsername}
+              onChange={(e) => { setAuthCreateUsername(e.target.value); setAuthCreateError(null); }}
+              status={authCreateError !== null ? "error" : ""}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 4, fontSize: 13, color: "#ccc" }}>
+              Password (leave empty to auto-generate)
+            </label>
+            <Input.Password
+              placeholder="password"
+              value={authCreatePassword}
+              onChange={(e) => setAuthCreatePassword(e.target.value)}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 4, fontSize: 13, color: "#ccc" }}>
+              Role
+            </label>
+            <Radio.Group
+              value={authCreateRole}
+              onChange={(e) => setAuthCreateRole(e.target.value)}
+              style={{ display: "flex", flexDirection: "column", gap: 8 }}
+            >
+              <Radio value="admin">
+                <span style={{ fontWeight: 600 }}>Admin</span>
+                <span style={{ marginLeft: 8, fontSize: 12, color: "#888" }}>— full access, can manage users</span>
+              </Radio>
+              <Radio value="viewer">
+                <span style={{ fontWeight: 600 }}>Viewer</span>
+                <span style={{ marginLeft: 8, fontSize: 12, color: "#888" }}>— read-only access</span>
+              </Radio>
+            </Radio.Group>
+          </div>
+          {authCreateError !== null && (
+            <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>{authCreateError}</div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        title="Auth User Created"
+        open={authShowCreds !== null}
+        onOk={() => setAuthShowCreds(null)}
+        onCancel={() => setAuthShowCreds(null)}
+        footer={[<Button key="close" onClick={() => setAuthShowCreds(null)}>Done</Button>]}
+      >
+        <div style={{ marginTop: 16 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Save these credentials — the password cannot be shown again.
+          </Typography.Text>
+          <div
+            style={{
+              marginTop: 12,
+              padding: "12px 16px",
+              background: "#1a1a1a",
+              border: "1px solid #333",
+              borderRadius: 6,
+              fontFamily: "monospace",
+              fontSize: 13,
+            }}
+          >
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>USERNAME</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ userSelect: "all" }}>{authShowCreds?.username}</span>
+                <CopyOutlined style={{ color: "#888", cursor: "pointer" }} onClick={() => copyText(authShowCreds?.username ?? "")} />
+              </div>
+            </div>
+            <div>
+              <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>PASSWORD</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ userSelect: "all", color: "#ff4d4f" }}>{authShowCreds?.password}</span>
+                <CopyOutlined style={{ color: "#888", cursor: "pointer" }} onClick={() => copyText(authShowCreds?.password ?? "")} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title={`Edit Auth User — ${authEditTarget?.username ?? ""}`}
+        open={authEditOpen}
+        onOk={handleAuthEdit}
+        onCancel={() => { setAuthEditOpen(false); setAuthEditTarget(null); }}
+        confirmLoading={updateAuthMutation.isPending}
+      >
+        <div style={{ marginTop: 8 }}>
+          <label style={{ display: "block", marginBottom: 4, fontSize: 13, color: "#ccc" }}>
+            Role
+          </label>
+          <Radio.Group
+            value={authEditRole}
+            onChange={(e) => setAuthEditRole(e.target.value)}
+            style={{ display: "flex", flexDirection: "column", gap: 8 }}
+          >
+            <Radio value="admin">
+              <span style={{ fontWeight: 600 }}>Admin</span>
+              <span style={{ marginLeft: 8, fontSize: 12, color: "#888" }}>— full access, can manage users</span>
+            </Radio>
+            <Radio value="viewer">
+              <span style={{ fontWeight: 600 }}>Viewer</span>
+              <span style={{ marginLeft: 8, fontSize: 12, color: "#888" }}>— read-only access</span>
+            </Radio>
+          </Radio.Group>
+        </div>
+      </Modal>
+
+      <Modal
+        title={`Reset Password — ${authResetTarget?.username ?? ""}`}
+        open={authResetOpen}
+        onOk={handleAuthReset}
+        onCancel={() => { setAuthResetOpen(false); setAuthResetTarget(null); setAuthResetPassword(null); }}
+        confirmLoading={resetAuthMutation.isPending}
+      >
+        <div style={{ marginTop: 8 }}>
+          {authResetPassword === null ? (
+            <Typography.Text type="secondary">
+              Generate a new password for this user? They will be logged out immediately.
+            </Typography.Text>
+          ) : (
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Save this password — it cannot be shown again.
+              </Typography.Text>
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: "12px 16px",
+                  background: "#1a1a1a",
+                  border: "1px solid #333",
+                  borderRadius: 6,
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                }}
+              >
+                <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>PASSWORD</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ userSelect: "all", color: "#ff4d4f" }}>{authResetPassword}</span>
+                  <CopyOutlined style={{ color: "#888", cursor: "pointer" }} onClick={() => copyText(authResetPassword)} />
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </Modal>
