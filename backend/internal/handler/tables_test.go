@@ -1355,3 +1355,127 @@ func TestListLogs_Pagination(t *testing.T) {
 		t.Fatalf("expected total >= 5, got %d", resp.Total)
 	}
 }
+
+func TestAuditLog_CreateDatabase(t *testing.T) {
+	h, pool, ctx := setupTableHandler(t)
+
+	pool.Exec(ctx, "DELETE FROM audit_log WHERE action = 'create_database' AND database = 'testauditcreatdb'")
+
+	w := httptest.NewRecorder()
+	body := jsonBody(map[string]interface{}{"name": "testauditcreatdb"})
+	req := httptest.NewRequest(http.MethodPost, "/api/databases", body).WithContext(adminCtx(ctx))
+	h.CreateDatabase(w, req)
+
+	if w.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var count int
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM audit_log WHERE action = 'create_database' AND database = 'testauditcreatdb'").Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 audit log entry for create_database, got %d", count)
+	}
+
+	var username string
+	pool.QueryRow(ctx, "SELECT username FROM audit_log WHERE action = 'create_database' AND database = 'testauditcreatdb'").Scan(&username)
+	if username != "admin" {
+		t.Fatalf("expected username 'admin', got %q", username)
+	}
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DROP DATABASE IF EXISTS testauditcreatdb WITH (FORCE)")
+	})
+}
+
+func TestAuditLog_DeleteDatabase(t *testing.T) {
+	h, pool, ctx := setupTableHandler(t)
+	createTestDB(t, pool, "testauditdeldb")
+
+	pool.Exec(ctx, "DELETE FROM audit_log WHERE action = 'delete_database'")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/databases/testauditdeldb", nil).WithContext(adminCtx(ctx))
+	h.DeleteDatabase(w, req)
+
+	if w.Code != 204 {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var count int
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM audit_log WHERE action = 'delete_database' AND database = 'testauditdeldb'").Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 audit log entry for delete_database, got %d", count)
+	}
+}
+
+func TestAuditLog_CreateUser(t *testing.T) {
+	h, pool, ctx := setupTableHandler(t)
+	createTestDB(t, pool, "testauditcreateuserdb")
+
+	pool.Exec(ctx, "DELETE FROM audit_log WHERE action = 'create_user'")
+	pool.Exec(ctx, "DROP OWNED BY testauditcu CASCADE")
+	pool.Exec(ctx, "DROP ROLE IF EXISTS testauditcu")
+	pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testauditcu'")
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DROP OWNED BY testauditcu CASCADE")
+		pool.Exec(ctx, "DROP ROLE IF EXISTS testauditcu")
+		pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testauditcu'")
+	})
+
+	w := httptest.NewRecorder()
+	body := jsonBody(map[string]interface{}{
+		"username":  "testauditcu",
+		"databases": []string{"testauditcreateuserdb"},
+		"access":    "read",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/users", body).WithContext(adminCtx(ctx))
+	h.CreateUser(w, req)
+
+	if w.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var count int
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM audit_log WHERE action = 'create_user'").Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 audit log entry for create_user, got %d", count)
+	}
+}
+
+func TestAuditLog_DeleteUser(t *testing.T) {
+	h, pool, ctx := setupTableHandler(t)
+	createTestDB(t, pool, "testauditdeluserdb")
+
+	pool.Exec(ctx, "DELETE FROM audit_log WHERE action = 'delete_user'")
+	pool.Exec(ctx, "DROP OWNED BY testauditdu CASCADE")
+	pool.Exec(ctx, "DROP ROLE IF EXISTS testauditdu")
+	pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testauditdu'")
+
+	_, err := pool.Exec(ctx, "CREATE ROLE testauditdu WITH LOGIN PASSWORD 'testpass123'")
+	if err != nil {
+		t.Fatalf("failed to create role: %v", err)
+	}
+	_, err = pool.Exec(ctx, "INSERT INTO managed_users (username, database_name, access) VALUES ('testauditdu', 'testauditdeluserdb', 'read')")
+	if err != nil {
+		t.Fatalf("failed to insert managed_user: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DROP OWNED BY testauditdu CASCADE")
+		pool.Exec(ctx, "DROP ROLE IF EXISTS testauditdu")
+		pool.Exec(ctx, "DELETE FROM managed_users WHERE username = 'testauditdu'")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/users/testauditdu", nil).WithContext(adminCtx(ctx))
+	h.DeleteUser(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var count int
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM audit_log WHERE action = 'delete_user'").Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 audit log entry for delete_user, got %d", count)
+	}
+}

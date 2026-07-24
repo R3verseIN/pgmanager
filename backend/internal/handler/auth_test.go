@@ -775,3 +775,70 @@ func TestChangeLastAdminRole_WithDevs(t *testing.T) {
 		t.Fatalf("expected 'cannot change role of the last admin', got %q", resp["error"])
 	}
 }
+
+func TestAuditLog_CreateAuthUser(t *testing.T) {
+	ah, pool, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+
+	pool.Exec(ctx, "DELETE FROM audit_log WHERE action = 'create_auth_user'")
+
+	body := `{"username":"auditviewer","password":"auditpass123","role":"viewer"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/users", bytes.NewBufferString(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	ah.CreateAuthUser(w, req)
+
+	if w.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var count int
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM audit_log WHERE action = 'create_auth_user'").Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 audit log entry for create_auth_user, got %d", count)
+	}
+}
+
+func TestAuditLog_DeleteAuthUser(t *testing.T) {
+	ah, pool, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+	createTestAuthUser(t, ah, ctx, "audittodelete", "audittodelete123", "viewer")
+
+	pool.Exec(ctx, "DELETE FROM audit_log WHERE action = 'delete_auth_user'")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/auth/users/audittodelete", nil).WithContext(ctx)
+	ah.DeleteAuthUser(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var count int
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM audit_log WHERE action = 'delete_auth_user'").Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 audit log entry for delete_auth_user, got %d", count)
+	}
+}
+
+func TestAuditLog_ResetPassword(t *testing.T) {
+	ah, pool, ctx := setupAuthTest(t)
+	createTestAdmin(t, ah, ctx, "admin", "admin1234")
+	createTestAuthUser(t, ah, ctx, "auditreset", "auditreset123", "viewer")
+
+	pool.Exec(ctx, "DELETE FROM audit_log WHERE action = 'reset_password'")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/users/auditreset/reset-password", nil).WithContext(ctx)
+	ah.ResetAuthUserPassword(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var count int
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM audit_log WHERE action = 'reset_password'").Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 audit log entry for reset_password, got %d", count)
+	}
+}

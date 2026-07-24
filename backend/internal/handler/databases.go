@@ -150,6 +150,18 @@ func (h *Handler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, database{
 		Name: name,
 	})
+
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "create_database",
+		Database:  name,
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *Handler) DeleteDatabase(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +193,18 @@ func (h *Handler) DeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "delete_database",
+		Database:  name,
+		IPAddress: clientIP(r),
+	})
 }
 
 func quoteIdent(name string) string {

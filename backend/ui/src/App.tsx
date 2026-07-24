@@ -10,6 +10,7 @@ import Users from "./routes/Users";
 import Logs from "./routes/Logs";
 import Login from "./routes/Login";
 import Setup from "./routes/Setup";
+import Profile from "./routes/Profile";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { cn } from "./lib/utils";
 
@@ -31,7 +32,7 @@ function AppLayout() {
   }, [location.pathname]);
 
   return (
-    <div className="flex min-h-screen bg-background flex-col md:flex-row">
+    <div className="flex h-screen overflow-hidden bg-background flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden flex items-center justify-between border-b border-border bg-card px-4 h-14 shrink-0">
         <div className="flex items-center gap-3">
@@ -74,7 +75,7 @@ function AppLayout() {
           )}
         </div>
 
-        <nav className="flex-1 space-y-1 p-2">
+        <nav className="flex-1 space-y-1 p-2 overflow-y-auto">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -146,7 +147,7 @@ function AppLayout() {
             isCollapsed ? "justify-center" : "justify-between"
           )}>
             {!isCollapsed ? (
-              <div className="flex items-center gap-3 overflow-hidden">
+              <Link to="/profile" className="flex items-center gap-3 overflow-hidden hover:bg-accent/50 rounded-md transition-colors">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
                   <User className="h-4 w-4" />
                 </div>
@@ -154,14 +155,16 @@ function AppLayout() {
                   <span className="truncate text-sm font-medium text-foreground">{user?.username}</span>
                   <span className="truncate text-xs text-muted-foreground capitalize">{user?.role}</span>
                 </div>
-              </div>
+              </Link>
             ) : (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
-                      <User className="h-4 w-4" />
-                    </div>
+                    <Link to="/profile">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+                        <User className="h-4 w-4" />
+                      </div>
+                    </Link>
                   </TooltipTrigger>
                   <TooltipContent side="right">
                     <p className="font-medium">{user?.username}</p>
@@ -273,7 +276,7 @@ function AppLayout() {
             </nav>
             <div className="border-t border-border pt-4 mt-auto">
               <div className="flex items-center justify-between rounded-md p-2 bg-accent/30">
-                <div className="flex items-center gap-3 overflow-hidden">
+                <Link to="/profile" className="flex items-center gap-3 overflow-hidden">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
                     <User className="h-4 w-4" />
                   </div>
@@ -281,7 +284,7 @@ function AppLayout() {
                     <span className="truncate text-sm font-medium text-foreground">{user?.username}</span>
                     <span className="truncate text-xs text-muted-foreground capitalize">{user?.role}</span>
                   </div>
-                </div>
+                </Link>
                 <button 
                   onClick={logout} 
                   className="rounded-md p-2 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors shrink-0"
@@ -295,13 +298,14 @@ function AppLayout() {
         </div>
       )}
 
-      <main className="flex-1 p-4 sm:p-6 overflow-auto min-w-0">
+      <main className="flex-1 p-4 sm:p-6 overflow-y-auto min-w-0 h-full">
         <Routes>
           <Route path="/" element={<DatabasesTable />} />
           <Route path="/databases/:name" element={<DatabaseDetail />} />
           <Route path="/databases/:name/tables/:table" element={<TableDetail />} />
           <Route path="/users" element={user?.role === "admin" ? <Users /> : <Navigate to="/" />} />
           <Route path="/logs" element={user?.role === "admin" ? <Logs /> : <Navigate to="/" />} />
+          <Route path="/profile" element={<Profile />} />
         </Routes>
       </main>
     </div>

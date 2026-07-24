@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -16,6 +18,18 @@ type AuthHandler struct {
 
 func NewAuthHandler(pool *pgxpool.Pool) *AuthHandler {
 	return &AuthHandler{pool: pool}
+}
+
+func (h *AuthHandler) writeAuditLog(ctx context.Context, entry auditEntry) {
+	_, err := h.pool.Exec(ctx,
+		`INSERT INTO audit_log (username, action, database, table_name, detail, ip_address)
+		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6)`,
+		entry.Username, entry.Action, entry.Database,
+		entry.TableName, entry.Detail, entry.IPAddress,
+	)
+	if err != nil {
+		log.Printf("audit log write failed: %v", err)
+	}
 }
 
 type setupRequest struct {
@@ -149,6 +163,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	auth.SetSessionCookie(w, token)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged in"})
+
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  req.Username,
+		Action:    "login",
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +178,17 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 	auth.ClearSessionCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
+
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "logout",
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
@@ -232,6 +263,12 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	auth.ClearSessionCookie(w)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password changed"})
+
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  user.Username,
+		Action:    "change_password",
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *AuthHandler) CreateAuthUser(w http.ResponseWriter, r *http.Request) {
@@ -325,6 +362,18 @@ func (h *AuthHandler) CreateAuthUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "created"})
+
+	adminUser := auth.GetUserFromContext(r.Context())
+	adminUsername := ""
+	if adminUser != nil {
+		adminUsername = adminUser.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  adminUsername,
+		Action:    "create_auth_user",
+		Detail:    map[string]interface{}{"target": req.Username, "role": req.Role},
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
@@ -418,6 +467,18 @@ func (h *AuthHandler) UpdateAuthUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+
+	adminUser := auth.GetUserFromContext(r.Context())
+	adminUsername := ""
+	if adminUser != nil {
+		adminUsername = adminUser.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  adminUsername,
+		Action:    "update_auth_user",
+		Detail:    map[string]interface{}{"target": username, "role": req.Role},
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *AuthHandler) DeleteAuthUser(w http.ResponseWriter, r *http.Request) {
@@ -459,6 +520,18 @@ func (h *AuthHandler) DeleteAuthUser(w http.ResponseWriter, r *http.Request) {
 		}
 		auth.DeleteUserSessions(r.Context(), h.pool, id)
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+
+		adminUser := auth.GetUserFromContext(r.Context())
+		adminUsername := ""
+		if adminUser != nil {
+			adminUsername = adminUser.Username
+		}
+		h.writeAuditLog(r.Context(), auditEntry{
+			Username:  adminUsername,
+			Action:    "delete_auth_user",
+			Detail:    map[string]interface{}{"target": username},
+			IPAddress: clientIP(r),
+		})
 		return
 	}
 
@@ -470,6 +543,18 @@ func (h *AuthHandler) DeleteAuthUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+
+	adminUser := auth.GetUserFromContext(r.Context())
+	adminUsername := ""
+	if adminUser != nil {
+		adminUsername = adminUser.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  adminUsername,
+		Action:    "delete_auth_user",
+		Detail:    map[string]interface{}{"target": username},
+		IPAddress: clientIP(r),
+	})
 }
 
 type authUserListItem struct {
@@ -574,4 +659,16 @@ func (h *AuthHandler) ResetAuthUserPassword(w http.ResponseWriter, r *http.Reque
 	auth.DeleteUserSessions(r.Context(), h.pool, id)
 
 	writeJSON(w, http.StatusOK, map[string]string{"password": newPassword})
+
+	adminUser := auth.GetUserFromContext(r.Context())
+	adminUsername := ""
+	if adminUser != nil {
+		adminUsername = adminUser.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  adminUsername,
+		Action:    "reset_password",
+		Detail:    map[string]interface{}{"target": username},
+		IPAddress: clientIP(r),
+	})
 }

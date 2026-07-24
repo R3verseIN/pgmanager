@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"pgmanager/internal/auth"
 )
 
 // extractUserFromPath extracts the username from paths like /api/users/{username}[/...]
@@ -329,6 +331,18 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Access:           req.Access,
 		CreatedAt:        time.Now().Format(time.RFC3339),
 	})
+
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "create_user",
+		Detail:    map[string]interface{}{"target": req.Username, "databases": req.Databases, "access": req.Access},
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
@@ -392,6 +406,18 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+
+	user := auth.GetUserFromContext(r.Context())
+	actor := ""
+	if user != nil {
+		actor = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  actor,
+		Action:    "update_user",
+		Detail:    map[string]interface{}{"target": username, "access": req.Access},
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *Handler) AddUserDatabase(w http.ResponseWriter, r *http.Request) {
@@ -462,6 +488,19 @@ func (h *Handler) AddUserDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "granted"})
+
+	user := auth.GetUserFromContext(r.Context())
+	actor := ""
+	if user != nil {
+		actor = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  actor,
+		Action:    "add_user_database",
+		Database:  req.Database,
+		Detail:    map[string]interface{}{"target": username},
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *Handler) RemoveUserDatabase(w http.ResponseWriter, r *http.Request) {
@@ -488,6 +527,19 @@ func (h *Handler) RemoveUserDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+
+	user := auth.GetUserFromContext(r.Context())
+	actor := ""
+	if user != nil {
+		actor = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  actor,
+		Action:    "remove_user_database",
+		Database:  db,
+		Detail:    map[string]interface{}{"target": username},
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
@@ -503,6 +555,18 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.pool.Exec(ctx, "DELETE FROM managed_users WHERE username = $1", username)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+
+	user := auth.GetUserFromContext(r.Context())
+	actor := ""
+	if user != nil {
+		actor = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  actor,
+		Action:    "delete_user",
+		Detail:    map[string]interface{}{"target": username},
+		IPAddress: clientIP(r),
+	})
 }
 
 func (h *Handler) getUserDatabases(ctx context.Context, username string) []string {
