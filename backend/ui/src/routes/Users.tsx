@@ -537,11 +537,33 @@ export default function Users() {
                   ))}
                 </RadioGroup>
               </div>
+              <div className="space-y-2">
+                <Label>Databases</Label>
+                <div className="flex flex-wrap gap-2">
+                  {databases?.map((d: Database) => (
+                    <Badge
+                      key={d.name}
+                      variant={formDbs.includes(d.name) ? "default" : "outline"}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        setFormDbs(prev =>
+                          prev.includes(d.name) ? prev.filter(x => x !== d.name) : [...prev, d.name]
+                        );
+                      }}
+                    >
+                      {d.name}
+                    </Badge>
+                  ))}
+                </div>
+                {formDbs.length === 0 && (
+                  <p className="text-xs text-destructive">Select at least one database</p>
+                )}
+              </div>
               {formError && <div className="text-sm text-destructive">{formError}</div>}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={createMutation.isPending}>Create</Button>
+              <Button type="submit" disabled={createMutation.isPending || formDbs.length === 0}>Create</Button>
             </DialogFooter>
           </form>
         </DialogContent>
