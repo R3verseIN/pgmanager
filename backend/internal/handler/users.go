@@ -11,6 +11,35 @@ import (
 	"time"
 )
 
+// extractUserFromPath extracts the username from paths like /api/users/{username}[/...]
+// Since routes are manually dispatched (not Go 1.22 patterns), r.PathValue() doesn't work.
+func extractUserFromPath(path string) string {
+	prefix := "/api/users/"
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+	rest := path[len(prefix):]
+	if idx := strings.Index(rest, "/"); idx < 0 {
+		return rest
+	} else {
+		return rest[:idx]
+	}
+}
+
+// extractUserDBFromPath extracts username and database from /api/users/{username}/databases/{database}
+func extractUserDBFromPath(path string) (string, string) {
+	prefix := "/api/users/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", ""
+	}
+	rest := path[len(prefix):]
+	parts := strings.Split(rest, "/")
+	if len(parts) >= 4 && parts[1] == "databases" {
+		return parts[0], parts[3]
+	}
+	return "", ""
+}
+
 type userRecord struct {
 	Username  string   `json:"username"`
 	Databases []string `json:"databases"`
@@ -134,9 +163,33 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 			user_id    INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours'
-		);
+		)
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	_, err = h.pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS audit_log (
+			id          SERIAL PRIMARY KEY,
+			username    TEXT NOT NULL,
+			action      TEXT NOT NULL,
+			database    TEXT NOT NULL,
+			table_name  TEXT,
+			detail      JSONB,
+			ip_address  TEXT,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, _ = h.pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at DESC)`)
+	_, _ = h.pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_log_username ON audit_log(username)`)
+	_, _ = h.pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)`)
+
+	return nil
 }
 
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
@@ -279,7 +332,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
-	username := r.PathValue("name")
+	username := extractUserFromPath(r.URL.Path)
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username is required")
 		return
@@ -342,7 +395,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AddUserDatabase(w http.ResponseWriter, r *http.Request) {
-	username := r.PathValue("name")
+	username := extractUserFromPath(r.URL.Path)
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username is required")
 		return
@@ -412,8 +465,7 @@ func (h *Handler) AddUserDatabase(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) RemoveUserDatabase(w http.ResponseWriter, r *http.Request) {
-	username := r.PathValue("name")
-	db := r.PathValue("db")
+	username, db := extractUserDBFromPath(r.URL.Path)
 	if username == "" || db == "" {
 		writeError(w, http.StatusBadRequest, "username and database are required")
 		return
@@ -439,7 +491,7 @@ func (h *Handler) RemoveUserDatabase(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
-	username := r.PathValue("name")
+	username := extractUserFromPath(r.URL.Path)
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username is required")
 		return

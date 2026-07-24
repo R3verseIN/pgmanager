@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
-import { Database, Users as UsersIcon, Loader2, ChevronLeft, ChevronRight, Menu, X, LogOut, User } from "lucide-react";
+import { Database, Users as UsersIcon, Loader2, ChevronLeft, ChevronRight, Menu, X, LogOut, User, ScrollText } from "lucide-react";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DatabasesTable from "./components/DatabasesTable";
+import DatabaseDetail from "./routes/DatabaseDetail";
+import TableDetail from "./routes/TableDetail";
 import Users from "./routes/Users";
+import Logs from "./routes/Logs";
 import Login from "./routes/Login";
 import Setup from "./routes/Setup";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
@@ -12,7 +15,11 @@ import { cn } from "./lib/utils";
 
 function AppLayout() {
   const location = useLocation();
-  const selectedKey = location.pathname === "/users" ? "users" : "databases";
+  const selectedKey = location.pathname === "/users"
+    ? "users"
+    : location.pathname === "/logs"
+      ? "logs"
+      : "databases";
   const { user, logout } = useAuth();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -89,24 +96,45 @@ function AppLayout() {
             </Tooltip>
 
             {user?.role === "admin" && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    to="/users"
-                    className={cn(
-                      "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 active:scale-95 mt-1",
-                      isCollapsed ? "justify-center" : "gap-3",
-                      selectedKey === "users"
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground hover:translate-x-1"
-                    )}
-                  >
-                    <UsersIcon className="h-4 w-4 shrink-0" />
-                    {!isCollapsed && <span>Users</span>}
-                  </Link>
-                </TooltipTrigger>
-                {isCollapsed && <TooltipContent side="right">Users</TooltipContent>}
-              </Tooltip>
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      to="/users"
+                      className={cn(
+                        "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 active:scale-95 mt-1",
+                        isCollapsed ? "justify-center" : "gap-3",
+                        selectedKey === "users"
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground hover:translate-x-1"
+                      )}
+                    >
+                      <UsersIcon className="h-4 w-4 shrink-0" />
+                      {!isCollapsed && <span>Users</span>}
+                    </Link>
+                  </TooltipTrigger>
+                  {isCollapsed && <TooltipContent side="right">Users</TooltipContent>}
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      to="/logs"
+                      className={cn(
+                        "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 active:scale-95 mt-1",
+                        isCollapsed ? "justify-center" : "gap-3",
+                        selectedKey === "logs"
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground hover:translate-x-1"
+                      )}
+                    >
+                      <ScrollText className="h-4 w-4 shrink-0" />
+                      {!isCollapsed && <span>Logs</span>}
+                    </Link>
+                  </TooltipTrigger>
+                  {isCollapsed && <TooltipContent side="right">Logs</TooltipContent>}
+                </Tooltip>
+              </>
             )}
           </TooltipProvider>
         </nav>
@@ -215,18 +243,32 @@ function AppLayout() {
                 Databases
               </Link>
               {user?.role === "admin" && (
-                <Link
-                  to="/users"
-                  className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mt-1",
-                    selectedKey === "users"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                  )}
-                >
-                  <UsersIcon className="h-4 w-4 shrink-0" />
-                  Users
-                </Link>
+                <>
+                  <Link
+                    to="/users"
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mt-1",
+                      selectedKey === "users"
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    )}
+                  >
+                    <UsersIcon className="h-4 w-4 shrink-0" />
+                    Users
+                  </Link>
+                  <Link
+                    to="/logs"
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mt-1",
+                      selectedKey === "logs"
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    )}
+                  >
+                    <ScrollText className="h-4 w-4 shrink-0" />
+                    Logs
+                  </Link>
+                </>
               )}
             </nav>
             <div className="border-t border-border pt-4 mt-auto">
@@ -256,7 +298,10 @@ function AppLayout() {
       <main className="flex-1 p-4 sm:p-6 overflow-auto min-w-0">
         <Routes>
           <Route path="/" element={<DatabasesTable />} />
+          <Route path="/databases/:name" element={<DatabaseDetail />} />
+          <Route path="/databases/:name/tables/:table" element={<TableDetail />} />
           <Route path="/users" element={user?.role === "admin" ? <Users /> : <Navigate to="/" />} />
+          <Route path="/logs" element={user?.role === "admin" ? <Logs /> : <Navigate to="/" />} />
         </Routes>
       </main>
     </div>

@@ -109,3 +109,76 @@ export const CreateAuthUserRequestSchema = z.object({
   role: z.enum(["admin", "dev", "viewer"]),
   databases: z.array(z.string()).optional(),
 });
+
+export const TableInfoSchema = z.object({
+  name: z.string(),
+  rowCount: z.number(),
+});
+
+export type TableInfo = z.infer<typeof TableInfoSchema>;
+
+export const ColumnInfoSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  nullable: z.boolean(),
+  default: z.string().nullable(),
+  isPrimaryKey: z.boolean(),
+});
+
+export type ColumnInfo = z.infer<typeof ColumnInfoSchema>;
+
+export const DataResultSchema = z.object({
+  columns: z.array(z.string()),
+  rows: z.array(z.array(z.any())),
+  total: z.number(),
+});
+
+export type DataResult = z.infer<typeof DataResultSchema>;
+
+export const WhereConditionSchema = z.object({
+  column: z.string(),
+  operator: z.enum(["=", "!=", ">", "<", ">=", "<=", "LIKE", "IS NULL", "IS NOT NULL"]),
+  value: z.any().optional(),
+});
+
+export type WhereCondition = z.infer<typeof WhereConditionSchema>;
+
+export const ColumnDefSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  nullable: z.boolean(),
+  default: z.string().optional(),
+  isPrimaryKey: z.boolean(),
+});
+
+export type ColumnDef = z.infer<typeof ColumnDefSchema>;
+
+export const QueryResultSchema = z.object({
+  columns: z.array(z.string()),
+  rows: z.array(z.array(z.any())),
+  rowCount: z.number(),
+  duration: z.number(),
+  error: z.string().optional(),
+});
+
+export type QueryResult = z.infer<typeof QueryResultSchema>;
+
+export const AuditLogEntrySchema = z.object({
+  id: z.number(),
+  username: z.string(),
+  action: z.string(),
+  database: z.string(),
+  tableName: z.string().nullable().optional(),
+  detail: z.any().nullable().optional(),
+  ipAddress: z.string().nullable().optional(),
+  createdAt: z.string(),
+});
+
+export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>;
+
+export const AuditLogResponseSchema = z.object({
+  entries: z.array(AuditLogEntrySchema),
+  total: z.number(),
+});
+
+export type AuditLogResponse = z.infer<typeof AuditLogResponseSchema>;

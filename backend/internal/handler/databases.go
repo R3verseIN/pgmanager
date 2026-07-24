@@ -22,11 +22,16 @@ var protectedDatabases = map[string]bool{
 var validName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 type Handler struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	baseDSN string
 }
 
 func New(pool *pgxpool.Pool) *Handler {
 	return &Handler{pool: pool}
+}
+
+func NewWithDSN(pool *pgxpool.Pool, baseDSN string) *Handler {
+	return &Handler{pool: pool, baseDSN: baseDSN}
 }
 
 type database struct {
@@ -134,6 +139,10 @@ func (h *Handler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 
 	sql := "CREATE DATABASE " + quoteIdent(name)
 	if _, err := h.pool.Exec(r.Context(), sql); err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			writeError(w, http.StatusConflict, "database already exists: "+name)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to create database: "+err.Error())
 		return
 	}
@@ -144,7 +153,18 @@ func (h *Handler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteDatabase(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	// Extract name from path: /api/databases/{name}
+	name := ""
+	path := r.URL.Path
+	prefix := "/api/databases/"
+	if strings.HasPrefix(path, prefix) {
+		rest := path[len(prefix):]
+		if idx := strings.Index(rest, "/"); idx < 0 {
+			name = rest
+		} else {
+			name = rest[:idx]
+		}
+	}
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return

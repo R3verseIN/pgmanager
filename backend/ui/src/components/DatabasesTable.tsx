@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2, RefreshCw, Eye, EyeOff } from "lucide-react";
@@ -146,7 +147,11 @@ export default function DatabasesTable() {
                   className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
                   style={{ animationDelay: `${i * 50}ms` }}
                 >
-                  <TableCell className="font-medium">{db.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link to={`/databases/${db.name}`} className="text-foreground hover:underline">
+                      {db.name}
+                    </Link>
+                  </TableCell>
                   {isAdmin && (
                     <TableCell>
                       <Button

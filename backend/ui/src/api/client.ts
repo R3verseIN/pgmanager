@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   DatabasesResponseSchema,
   ErrorResponseSchema,
@@ -6,8 +7,13 @@ import {
   DatabaseSchema,
   AuthUserListResponseSchema,
   ResetPasswordResponseSchema,
+  TableInfoSchema,
+  ColumnInfoSchema,
+  DataResultSchema,
+  QueryResultSchema,
+  AuditLogResponseSchema,
 } from "../lib/schemas";
-import type { Database, User, AuthUserListItem } from "../lib/schemas";
+import type { Database, User, AuthUserListItem, TableInfo, ColumnInfo, DataResult, WhereCondition, ColumnDef, QueryResult, AuditLogResponse } from "../lib/schemas";
 
 const BASE_URL = "/api";
 
@@ -185,4 +191,88 @@ export async function resetAuthUserPassword(username: string, password?: string)
   const data = await request<unknown>(`/auth/users/${encodeURIComponent(username)}/reset-password`, init);
   const parsed = ResetPasswordResponseSchema.parse(data);
   return parsed.password;
+}
+
+export async function fetchTables(dbName: string): Promise<TableInfo[]> {
+  const data = await request<unknown>(`/databases/${encodeURIComponent(dbName)}/tables`);
+  return z.array(TableInfoSchema).parse(data);
+}
+
+export async function fetchColumns(dbName: string, table: string): Promise<ColumnInfo[]> {
+  const data = await request<unknown>(`/databases/${encodeURIComponent(dbName)}/columns/${encodeURIComponent(table)}`);
+  return z.array(ColumnInfoSchema).parse(data);
+}
+
+export async function fetchData(dbName: string, table: string, params: { limit?: number; offset?: number; sort?: string; order?: string } = {}): Promise<DataResult> {
+  const searchParams = new URLSearchParams();
+  if (params.limit) searchParams.set("limit", String(params.limit));
+  if (params.offset) searchParams.set("offset", String(params.offset));
+  if (params.sort) searchParams.set("sort", params.sort);
+  if (params.order) searchParams.set("order", params.order);
+  const qs = searchParams.toString();
+  const data = await request<unknown>(`/databases/${encodeURIComponent(dbName)}/data/${encodeURIComponent(table)}${qs ? "?" + qs : ""}`);
+  return DataResultSchema.parse(data);
+}
+
+export async function insertRow(dbName: string, table: string, values: Record<string, unknown>): Promise<void> {
+  await request<unknown>(`/databases/${encodeURIComponent(dbName)}/data/${encodeURIComponent(table)}`, {
+    method: "POST",
+    body: JSON.stringify({ values }),
+  });
+}
+
+export async function updateRow(dbName: string, table: string, values: Record<string, unknown>, where: WhereCondition[]): Promise<void> {
+  await request<unknown>(`/databases/${encodeURIComponent(dbName)}/data/${encodeURIComponent(table)}`, {
+    method: "PUT",
+    body: JSON.stringify({ values, where }),
+  });
+}
+
+export async function deleteRow(dbName: string, table: string, where: WhereCondition[]): Promise<void> {
+  await request<unknown>(`/databases/${encodeURIComponent(dbName)}/data/${encodeURIComponent(table)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ where }),
+  });
+}
+
+export async function createTable(dbName: string, name: string, columns: ColumnDef[]): Promise<void> {
+  await request<unknown>(`/databases/${encodeURIComponent(dbName)}/tables`, {
+    method: "POST",
+    body: JSON.stringify({ name, columns }),
+  });
+}
+
+export async function addColumn(dbName: string, table: string, column: ColumnDef): Promise<void> {
+  await request<unknown>(`/databases/${encodeURIComponent(dbName)}/tables/${encodeURIComponent(table)}/columns`, {
+    method: "POST",
+    body: JSON.stringify(column),
+  });
+}
+
+export async function dropColumn(dbName: string, table: string, column: string): Promise<void> {
+  await request<void>(`/databases/${encodeURIComponent(dbName)}/tables/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function executeQuery(dbName: string, sql: string): Promise<QueryResult> {
+  const data = await request<unknown>(`/databases/${encodeURIComponent(dbName)}/query`, {
+    method: "POST",
+    body: JSON.stringify({ sql }),
+  });
+  return QueryResultSchema.parse(data);
+}
+
+export async function fetchLogs(params: { username?: string; action?: string; database?: string; from?: string; to?: string; limit?: number; offset?: number } = {}): Promise<AuditLogResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.username) searchParams.set("username", params.username);
+  if (params.action) searchParams.set("action", params.action);
+  if (params.database) searchParams.set("database", params.database);
+  if (params.from) searchParams.set("from", params.from);
+  if (params.to) searchParams.set("to", params.to);
+  if (params.limit) searchParams.set("limit", String(params.limit));
+  if (params.offset) searchParams.set("offset", String(params.offset));
+  const qs = searchParams.toString();
+  const data = await request<unknown>(`/logs${qs ? "?" + qs : ""}`);
+  return AuditLogResponseSchema.parse(data);
 }

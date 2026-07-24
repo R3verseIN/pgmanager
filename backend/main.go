@@ -43,7 +43,7 @@ func main() {
 		port = "8080"
 	}
 
-	h := handler.New(pool)
+	h := handler.NewWithDSN(pool, buildBaseDSN())
 	ah := handler.NewAuthHandler(pool)
 
 	if err := h.InitUserSchema(ctx); err != nil {
@@ -100,6 +100,55 @@ func main() {
 			return
 		}
 
+		// Database content routes (any role for reads, admin/dev for writes)
+		// GET /api/databases/{name}/tables → 4 slashes
+		if method == "GET" && strings.HasSuffix(path, "/tables") && strings.Count(path, "/") == 4 {
+			h.ListTables(w, r)
+			return
+		}
+		// GET /api/databases/{name}/columns/{table} → 5 slashes
+		if method == "GET" && strings.Contains(path, "/columns/") && !strings.HasSuffix(path, "/columns") {
+			h.GetColumns(w, r)
+			return
+		}
+		// Data routes: /api/databases/{name}/data/{table} → 5 slashes
+		if strings.Contains(path, "/data/") && strings.Count(path, "/") == 5 {
+			switch method {
+			case "GET":
+				h.ListData(w, r)
+				return
+			case "POST":
+				h.InsertRow(w, r)
+				return
+			case "PUT":
+				h.UpdateRow(w, r)
+				return
+			case "DELETE":
+				h.DeleteRow(w, r)
+				return
+			}
+		}
+		// POST /api/databases/{name}/tables → 4 slashes
+		if method == "POST" && strings.HasSuffix(path, "/tables") && strings.Count(path, "/") == 4 {
+			h.CreateTable(w, r)
+			return
+		}
+		// POST /api/databases/{name}/tables/{table}/columns → 6 slashes
+		if method == "POST" && strings.HasSuffix(path, "/columns") && strings.Count(path, "/") == 6 {
+			h.AddColumn(w, r)
+			return
+		}
+		// DELETE /api/databases/{name}/tables/{table}/columns/{column} → 7 slashes
+		if method == "DELETE" && strings.Contains(path, "/columns/") && strings.Count(path, "/") == 7 {
+			h.DropColumn(w, r)
+			return
+		}
+		// POST /api/databases/{name}/query → 4 slashes
+		if method == "POST" && strings.HasSuffix(path, "/query") && strings.Count(path, "/") == 4 {
+			h.ExecuteQuery(w, r)
+			return
+		}
+
 		// Admin-only routes
 		user := auth.GetUserFromContext(r.Context())
 		if user == nil || user.Role != "admin" {
@@ -131,7 +180,7 @@ func main() {
 			h.CreateDatabase(w, r)
 			return
 		}
-		if method == "DELETE" && strings.HasPrefix(path, "/api/databases/") {
+		if method == "DELETE" && strings.HasPrefix(path, "/api/databases/") && strings.Count(path, "/") == 3 {
 			h.DeleteDatabase(w, r)
 			return
 		}
@@ -153,6 +202,10 @@ func main() {
 		}
 		if method == "DELETE" && strings.HasPrefix(path, "/api/users/") {
 			h.DeleteUser(w, r)
+			return
+		}
+		if method == "GET" && path == "/api/logs" {
+			h.ListLogs(w, r)
 			return
 		}
 
@@ -231,6 +284,37 @@ func buildDatabaseURL() string {
 	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", user, password, host, port, dbname, sslmode)
 	log.Printf("connecting to database at %s:%s/%s as %s", host, port, dbname, user)
 	return url
+}
+
+func buildBaseDSN() string {
+	secretPath := os.Getenv("SECRET_PATH")
+	if secretPath == "" {
+		secretPath = "/secrets/pgmanager-password"
+	}
+
+	password := readPassword(secretPath)
+
+	host := os.Getenv("PGHOST")
+	if host == "" {
+		host = "localhost"
+	}
+
+	port := os.Getenv("PGPORT")
+	if port == "" {
+		port = "5432"
+	}
+
+	user := os.Getenv("PGUSER")
+	if user == "" {
+		user = "pgmanager"
+	}
+
+	sslmode := os.Getenv("PGSSLMODE")
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/?sslmode=%s", user, password, host, port, sslmode)
 }
 
 func readPassword(path string) string {
