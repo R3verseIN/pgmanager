@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2, RefreshCw, Copy, Edit, Key, Dices } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Copy, Edit, Key, Dices, X } from "lucide-react";
 import {
   fetchUsers,
   fetchDatabases,
@@ -127,6 +127,52 @@ function DbMultiSelect({
   );
 }
 
+function IpInput({ ips, onChange }: { ips: string[], onChange: (ips: string[]) => void }) {
+  const [input, setInput] = useState("");
+
+  const addIp = () => {
+    const val = input.trim();
+    if (val && !ips.includes(val)) {
+      onChange([...ips, val]);
+    }
+    setInput("");
+  };
+
+  const removeIp = (ipToRemove: string) => {
+    onChange(ips.filter(ip => ip !== ipToRemove));
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2 mb-2 min-h-7">
+        {ips.length === 0 && <span className="text-xs text-muted-foreground pt-1">Any IP (0.0.0.0/0)</span>}
+        {ips.map(ip => (
+          <Badge key={ip} variant="secondary" className="pl-2 pr-1 py-1 flex items-center gap-1 font-mono text-[10px]">
+            {ip}
+            <button
+              type="button"
+              onClick={() => removeIp(ip)}
+              className="rounded-full hover:bg-muted p-0.5 ml-1"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Input 
+          value={input} 
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addIp(); } }}
+          placeholder="e.g. 192.168.0.10 or 10.0.0.0/24"
+          className="font-mono text-sm h-9"
+        />
+        <Button type="button" variant="outline" className="h-9" onClick={addIp}>Add</Button>
+      </div>
+    </div>
+  );
+}
+
 export default function Users() {
   const queryClient = useQueryClient();
 
@@ -141,7 +187,7 @@ export default function Users() {
   const [editTarget, setEditTarget] = useState<User | null>(null);
   const [editAccess, setEditAccess] = useState<"read" | "write" | "ddl" | "full">("write");
   const [editDatabases, setEditDatabases] = useState<string[]>([]);
-  const [editAllowedIps, setEditAllowedIps] = useState("");
+  const [editAllowedIps, setEditAllowedIps] = useState<string[]>([]);
 
   const [resetOpen, setResetOpen] = useState(false);
   const [resetTarget, setResetTarget] = useState<User | null>(null);
@@ -152,7 +198,7 @@ export default function Users() {
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
-  const [formAllowedIps, setFormAllowedIps] = useState("");
+  const [formAllowedIps, setFormAllowedIps] = useState<string[]>([]);
 
   // Auth Users State
   const [authCreateOpen, setAuthCreateOpen] = useState(false);
@@ -280,7 +326,7 @@ export default function Users() {
     setFormDbs([]);
     setFormUsername("");
     setFormAccess("write");
-    setFormAllowedIps("");
+    setFormAllowedIps([]);
     setFormError(null);
   }
 
@@ -292,10 +338,8 @@ export default function Users() {
       return;
     }
     setFormError(null);
-    const allowedIps = formAllowedIps.trim()
-      ? formAllowedIps.split(",").map(s => s.trim()).filter(Boolean)
-      : undefined;
-    
+    const allowedIps = formAllowedIps.length > 0 ? formAllowedIps : undefined;
+
     const vars: { username: string; databases: string[]; access: "read" | "write" | "ddl" | "full"; allowedIps?: string[] } = {
       username: result.data.username,
       databases: result.data.databases,
@@ -319,10 +363,7 @@ export default function Users() {
     if (result.data.access) vars.access = result.data.access;
     if (result.data.databases) vars.databases = result.data.databases;
     
-    const parsedAllowedIps = editAllowedIps.trim()
-      ? editAllowedIps.split(",").map(s => s.trim()).filter(Boolean)
-      : ["0.0.0.0/0"];
-    vars.allowedIps = parsedAllowedIps;
+    vars.allowedIps = editAllowedIps.length > 0 ? editAllowedIps : ["0.0.0.0/0"];
     
     updateMutation.mutate(vars);
   }
@@ -476,7 +517,7 @@ export default function Users() {
                           setEditTarget(user);
                           setEditAccess(user.access);
                           setEditDatabases(user.databases || []);
-                          setEditAllowedIps((user.allowedIps ?? ["0.0.0.0/0"]).join(", "));
+                          setEditAllowedIps(user.allowedIps ?? []);
                           setEditOpen(true);
                         }}>
                           <Edit className="h-4 w-4" />
@@ -632,13 +673,8 @@ export default function Users() {
                 onChange={setFormDbs}
               />
               <div className="space-y-2">
-                <Label>Allowed IPs <span className="text-xs text-muted-foreground font-normal">(comma-separated, leave blank for 0.0.0.0/0)</span></Label>
-                <input
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
-                  placeholder="e.g. 203.0.113.5, 10.0.0.0/24"
-                  value={formAllowedIps}
-                  onChange={(e) => setFormAllowedIps(e.target.value)}
-                />
+                <Label>Allowed IPs</Label>
+                <IpInput ips={formAllowedIps} onChange={setFormAllowedIps} />
               </div>
               {formError && <div className="text-sm text-destructive">{formError}</div>}
             </div>
@@ -714,13 +750,8 @@ export default function Users() {
                 </RadioGroup>
               </div>
               <div className="space-y-2">
-                <Label>Allowed IPs <span className="text-xs text-muted-foreground font-normal">(comma-separated, leave blank for 0.0.0.0/0)</span></Label>
-                <input
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
-                  placeholder="e.g. 203.0.113.5, 10.0.0.0/24"
-                  value={editAllowedIps}
-                  onChange={(e) => setEditAllowedIps(e.target.value)}
-                />
+                <Label>Allowed IPs</Label>
+                <IpInput ips={editAllowedIps} onChange={setEditAllowedIps} />
               </div>
             </div>
             <DialogFooter>
