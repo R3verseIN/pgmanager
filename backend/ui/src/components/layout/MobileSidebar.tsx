@@ -29,23 +29,23 @@ export default function MobileSidebar({
         className="fixed inset-0 bg-background/80 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="fixed inset-y-0 left-0 w-64 bg-card border-r border-border shadow-lg flex flex-col p-4 animate-in slide-in-from-left">
-        <div className="flex items-center justify-between mb-6">
+      <div className="animate-in slide-in-from-left fixed inset-y-0 left-0 flex w-64 flex-col border-r border-hairline bg-surface-1 p-4 shadow-lg">
+        <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
               src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png"
               alt="pgmanager logo"
-              className="h-8 w-8 object-contain shrink-0"
+              className="size-8 shrink-0 object-contain"
             />
-            <span className="font-semibold text-foreground text-sm">
+            <span className="text-sm font-(--font-display) text-foreground">
               pgmanager
             </span>
           </div>
           <button
             onClick={onClose}
-            className="p-2 -mr-2 text-muted-foreground hover:text-foreground"
+            className="-mr-2 p-2 text-ink-muted hover:text-foreground"
           >
-            <X className="h-5 w-5" />
+            <X className="size-5" />
           </button>
         </div>
         <nav className="flex-1 space-y-1">
@@ -55,11 +55,11 @@ export default function MobileSidebar({
             className={cn(
               "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
               selectedKey === "databases"
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                ? "bg-surface-2 text-foreground"
+                : "text-ink-muted hover:bg-surface-1 hover:text-foreground"
             )}
           >
-            <Database className="h-4 w-4 shrink-0" />
+            <Database className="size-4 shrink-0" />
             Databases
           </Link>
           {user?.role === "admin" && (
@@ -68,52 +68,52 @@ export default function MobileSidebar({
                 to="/users"
                 onClick={onClose}
                 className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mt-1",
+                  "mt-1 flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                   selectedKey === "users"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    ? "bg-surface-2 text-foreground"
+                    : "text-ink-muted hover:bg-surface-1 hover:text-foreground"
                 )}
               >
-                <UsersIcon className="h-4 w-4 shrink-0" />
+                <UsersIcon className="size-4 shrink-0" />
                 Users
               </Link>
               <Link
                 to="/logs"
                 onClick={onClose}
                 className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mt-1",
+                  "mt-1 flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                   selectedKey === "logs"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    ? "bg-surface-2 text-foreground"
+                    : "text-ink-muted hover:bg-surface-1 hover:text-foreground"
                 )}
               >
-                <ScrollText className="h-4 w-4 shrink-0" />
+                <ScrollText className="size-4 shrink-0" />
                 Logs
               </Link>
             </>
           )}
         </nav>
-        <div className="border-t border-border pt-4 mt-auto">
-          <div className="flex items-center justify-between rounded-md p-2 bg-accent/30">
+        <div className="mt-auto border-t border-hairline pt-4">
+          <div className="flex items-center justify-between rounded-md bg-surface-1 p-2">
             <Link to="/profile" className="flex items-center gap-3 overflow-hidden">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
-                <User className="h-4 w-4" />
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-foreground">
+                <User className="size-4" />
               </div>
               <div className="flex flex-col overflow-hidden">
                 <span className="truncate text-sm font-medium text-foreground">
                   {user?.username}
                 </span>
-                <span className="truncate text-xs text-muted-foreground capitalize">
+                <span className="truncate text-xs text-ink-muted capitalize">
                   {user?.role}
                 </span>
               </div>
             </Link>
             <button
               onClick={logout}
-              className="rounded-md p-2 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors shrink-0"
+              className="shrink-0 rounded-full p-2 text-ink-muted transition-colors hover:bg-destructive hover:text-destructive-foreground"
               title="Logout"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="size-4" />
             </button>
           </div>
         </div>

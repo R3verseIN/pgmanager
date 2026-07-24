@@ -26,7 +26,7 @@ export default function AuthUsersTable({
   onDelete: (user: AuthUserListItem) => void;
 }) {
   return (
-    <div className="rounded-md border border-border">
+    <div className="rounded-md border border-hairline bg-surface-1">
       <Table>
         <TableHeader>
           <TableRow>
@@ -40,13 +40,13 @@ export default function AuthUsersTable({
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+              <TableCell colSpan={5} className="h-24 text-center text-ink-muted">
                 Loading...
               </TableCell>
             </TableRow>
           ) : !users.length ? (
             <TableRow>
-              <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+              <TableCell colSpan={5} className="h-24 text-center text-ink-muted">
                 No auth users found.
               </TableCell>
             </TableRow>
@@ -54,7 +54,7 @@ export default function AuthUsersTable({
             users.map((authUser, i) => (
               <TableRow
                 key={authUser.id}
-                className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
+                className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-300"
                 style={{ animationDelay: `${i * 50}ms` }}
               >
                 <TableCell className="font-medium">{authUser.username}</TableCell>
@@ -83,7 +83,7 @@ export default function AuthUsersTable({
                       ))}
                     </div>
                   ) : (
-                    <span className="text-muted-foreground text-sm">—</span>
+                    <span className="text-sm text-ink-muted">—</span>
                   )}
                 </TableCell>
                 <TableCell className="hidden sm:table-cell">
@@ -92,7 +92,7 @@ export default function AuthUsersTable({
                 <TableCell>
                   <div className="flex gap-2">
                     <Button variant="ghost" size="icon" onClick={() => onEdit(authUser)}>
-                      <Edit className="h-4 w-4" />
+                      <Edit className="size-4" />
                     </Button>
                     <TooltipProvider>
                       <Tooltip>
@@ -102,7 +102,7 @@ export default function AuthUsersTable({
                             size="icon"
                             onClick={() => onResetPassword(authUser)}
                           >
-                            <Key className="h-4 w-4" />
+                            <Key className="size-4" />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>Reset password</TooltipContent>
@@ -114,7 +114,7 @@ export default function AuthUsersTable({
                       className="text-destructive"
                       onClick={() => onDelete(authUser)}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="size-4" />
                     </Button>
                   </div>
                 </TableCell>

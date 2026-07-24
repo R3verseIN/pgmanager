@@ -34,14 +34,14 @@ export default function Login() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-95 rounded-xl border border-border bg-card p-6 sm:p-10 shadow-sm">
+      <div className="w-full max-w-95 rounded-xl border border-hairline bg-surface-1 p-6 shadow-sm sm:p-10">
         <div className="mb-8 text-center">
           <img 
             src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png" 
             alt="pgmanager logo" 
-            className="mx-auto mb-4 h-12 w-12 object-contain" 
+            className="mx-auto mb-4 size-12 object-contain" 
           />
-          <h1 className="text-2xl font-semibold text-foreground">pgmanager</h1>
+          <h1 className="text-2xl font-(--font-display) tracking-tight text-foreground">pgmanager</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -74,7 +74,7 @@ export default function Login() {
           )}
 
           <Button type="submit" className="w-full font-medium" disabled={loading}>
-            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+            {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : <LogIn className="mr-2 size-4" />}
             {loading ? "Signing in..." : "Sign In"}
           </Button>
         </form>

@@ -42,7 +42,7 @@ export default function ConfirmDeleteDialog({
             Are you sure you want to delete "{itemName}"? This cannot be undone.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-4 space-y-4">
+        <div className="space-y-4 py-4">
           <div className="space-y-2">
             <Label>Type DELETE to confirm</Label>
             <Input

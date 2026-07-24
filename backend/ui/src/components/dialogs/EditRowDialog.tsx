@@ -88,7 +88,7 @@ export default function EditRowDialog({
             <div key={col.name} className="space-y-1">
               <Label>
                 {col.name}
-                <span className="text-xs text-muted-foreground ml-1">
+                <span className="text-xs text-ink-muted ml-1">
                   ({col.type})
                 </span>
                 {col.isPrimaryKey && (

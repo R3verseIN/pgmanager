@@ -7,9 +7,9 @@ export default function PageHeader({
 }) {
   return (
     <div>
-      <h2 className="text-xl font-semibold">{title}</h2>
+      <h2 className="text-xl font-(--font-display) tracking-tight">{title}</h2>
       {description && (
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <p className="text-sm text-ink-muted">{description}</p>
       )}
     </div>
   );

@@ -27,9 +27,9 @@ export default function IpInput({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-2 mb-2 min-h-7">
+      <div className="mb-2 flex min-h-7 flex-wrap gap-2">
         {ips.length === 0 && (
-          <span className="text-xs text-muted-foreground pt-1">
+          <span className="pt-1 text-xs text-ink-muted">
             Any IP (0.0.0.0/0)
           </span>
         )}
@@ -37,15 +37,15 @@ export default function IpInput({
           <Badge
             key={ip}
             variant="secondary"
-            className="pl-2 pr-1 py-1 flex items-center gap-1 font-mono text-[10px]"
+            className="flex items-center gap-1 py-1 pr-1 pl-2 font-mono text-[10px]"
           >
             {ip}
             <button
               type="button"
               onClick={() => removeIp(ip)}
-              className="rounded-full hover:bg-muted p-0.5 ml-1"
+              className="ml-1 rounded-full p-0.5 hover:bg-surface-2"
             >
-              <X className="h-3 w-3" />
+              <X className="size-3" />
             </button>
           </Badge>
         ))}
@@ -61,7 +61,7 @@ export default function IpInput({
             }
           }}
           placeholder="e.g. 192.168.0.10 or 10.0.0.0/24"
-          className="font-mono text-sm h-9"
+          className="h-9 font-mono text-sm"
         />
         <Button type="button" variant="outline" className="h-9" onClick={addIp}>
           Add

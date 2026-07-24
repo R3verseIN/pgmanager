@@ -32,7 +32,7 @@ export default function SqlConsole({ dbName }: { dbName: string }) {
     <div className="space-y-4">
       <div className="space-y-2">
         <textarea
-          className="w-full h-40 rounded-md border border-border bg-card px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+          className="h-40 w-full resize-y rounded-md border border-hairline bg-surface-1 px-3 py-2 font-mono text-sm text-foreground placeholder:text-ink-muted focus:border-accent-blue/30 focus:ring-2 focus:ring-accent-blue/15 focus:outline-none"
           placeholder="SELECT * FROM table_name;"
           value={sql}
           onChange={(e) => setSql(e.target.value)}
@@ -53,7 +53,7 @@ export default function SqlConsole({ dbName }: { dbName: string }) {
             Execute
           </Button>
           {result && (
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-ink-muted">
               {result.duration}ms | {result.rowCount} row
               {result.rowCount !== 1 ? "s" : ""}
             </span>
@@ -62,13 +62,13 @@ export default function SqlConsole({ dbName }: { dbName: string }) {
       </div>
 
       {result?.error && (
-        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
           {result.error}
         </div>
       )}
 
       {result && !result.error && result.columns.length > 0 && (
-        <div className="rounded-md border border-border overflow-x-auto">
+        <div className="overflow-x-auto rounded-md border border-hairline bg-surface-1">
           <Table>
             <TableHeader>
               <TableRow>
@@ -83,7 +83,7 @@ export default function SqlConsole({ dbName }: { dbName: string }) {
                   {row.map((cell: unknown, j: number) => (
                     <TableCell key={j} className="font-mono text-xs">
                       {cell === null ? (
-                        <span className="text-muted-foreground italic">NULL</span>
+                        <span className="text-ink-muted italic">NULL</span>
                       ) : (
                         String(cell)
                       )}

@@ -32,7 +32,7 @@ export default function PostgresUsersTable({
   onDelete: (user: User) => void;
 }) {
   return (
-    <div className="rounded-md border border-border">
+    <div className="rounded-md border border-hairline bg-surface-1">
       <Table>
         <TableHeader>
           <TableRow>
@@ -47,13 +47,13 @@ export default function PostgresUsersTable({
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+              <TableCell colSpan={6} className="h-24 text-center text-ink-muted">
                 Loading...
               </TableCell>
             </TableRow>
           ) : !users.length ? (
             <TableRow>
-              <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+              <TableCell colSpan={6} className="h-24 text-center text-ink-muted">
                 No users found.
               </TableCell>
             </TableRow>
@@ -61,7 +61,7 @@ export default function PostgresUsersTable({
             users.map((user, i) => (
               <TableRow
                 key={user.username}
-                className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
+                className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-300"
                 style={{ animationDelay: `${i * 50}ms` }}
               >
                 <TableCell className="font-medium">{user.username}</TableCell>
@@ -83,7 +83,7 @@ export default function PostgresUsersTable({
                       <Badge
                         key={ip}
                         variant={ip === "0.0.0.0/0" ? "outline" : "secondary"}
-                        className="text-xs font-mono"
+                        className="font-mono text-xs"
                       >
                         {ip === "0.0.0.0/0" ? "any" : ip}
                       </Badge>
@@ -101,10 +101,10 @@ export default function PostgresUsersTable({
                       title="Reset Password"
                       onClick={() => onResetPassword(user)}
                     >
-                      <Key className="h-4 w-4" />
+                      <Key className="size-4" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => onEdit(user)}>
-                      <Edit className="h-4 w-4" />
+                      <Edit className="size-4" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -112,7 +112,7 @@ export default function PostgresUsersTable({
                       className="text-destructive"
                       onClick={() => onDelete(user)}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="size-4" />
                     </Button>
                   </div>
                 </TableCell>

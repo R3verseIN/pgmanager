@@ -57,11 +57,11 @@ export default function DatabasesTable() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div className="flex items-center gap-3">
           {isAdmin && (
             <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus className="mr-2 size-4" />
               Create Database
             </Button>
           )}
@@ -78,20 +78,20 @@ export default function DatabasesTable() {
             onClick={() => setShowSystem((prev) => !prev)}
           >
             {showSystem ? (
-              <EyeOff className="mr-2 h-4 w-4" />
+              <EyeOff className="mr-2 size-4" />
             ) : (
-              <Eye className="mr-2 h-4 w-4" />
+              <Eye className="mr-2 size-4" />
             )}
             {showSystem ? "Hide System" : "Show System"}
           </Button>
           <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="mr-2 h-4 w-4" />
+            <RefreshCw className="mr-2 size-4" />
             Refresh
           </Button>
         </div>
       </div>
 
-      <div className="rounded-md border border-border">
+      <div className="rounded-md border border-hairline bg-surface-1">
         <Table>
           <TableHeader>
             <TableRow>
@@ -104,7 +104,7 @@ export default function DatabasesTable() {
               <TableRow>
                 <TableCell
                   colSpan={isAdmin ? 2 : 1}
-                  className="h-24 text-center text-muted-foreground"
+                  className="h-24 text-center text-ink-muted"
                 >
                   Loading...
                 </TableCell>
@@ -113,7 +113,7 @@ export default function DatabasesTable() {
               <TableRow>
                 <TableCell
                   colSpan={isAdmin ? 2 : 1}
-                  className="h-24 text-center text-muted-foreground"
+                  className="h-24 text-center text-ink-muted"
                 >
                   {searchQuery
                     ? "No matching databases found."
@@ -124,13 +124,13 @@ export default function DatabasesTable() {
               filteredDatabases.map((db: Database, i: number) => (
                 <TableRow
                   key={db.name}
-                  className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
+                  className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-300"
                   style={{ animationDelay: `${i * 50}ms` }}
                 >
                   <TableCell className="font-medium">
                     <Link
                       to={`/databases/${db.name}`}
-                      className="text-foreground hover:underline"
+                      className="text-foreground transition-colors hover:text-accent-blue"
                     >
                       {db.name}
                     </Link>
@@ -144,7 +144,7 @@ export default function DatabasesTable() {
                         disabled={db.protected}
                         onClick={() => setDeleteTarget(db.name)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="size-4" />
                       </Button>
                     </TableCell>
                   )}

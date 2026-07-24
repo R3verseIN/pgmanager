@@ -81,11 +81,11 @@ export default function ResetAuthPasswordDialog({
 
         {resultPassword !== null && (
           <div className="font-mono text-sm">
-            <div className="text-xs text-muted-foreground">PASSWORD</div>
+            <div className="text-xs text-ink-muted">PASSWORD</div>
             <div className="flex items-center gap-2 text-destructive">
               <span>{resultPassword}</span>
               <Copy
-                className="h-4 w-4 cursor-pointer text-muted-foreground"
+                className="size-4 cursor-pointer text-ink-muted transition-colors hover:text-foreground"
                 onClick={() => copyText(resultPassword)}
               />
             </div>

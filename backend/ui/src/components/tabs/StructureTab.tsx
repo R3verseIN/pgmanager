@@ -46,18 +46,18 @@ export default function StructureTab({
       {canWrite && (
         <div className="flex items-center gap-2">
           <Button onClick={onAddColumn}>
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="mr-2 size-4" />
             Add Column
           </Button>
         </div>
       )}
 
       {isLoading ? (
-        <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        <div className="py-8 text-center text-ink-muted">Loading...</div>
       ) : !columns?.length ? (
-        <div className="text-center py-8 text-muted-foreground">No columns.</div>
+        <div className="py-8 text-center text-ink-muted">No columns.</div>
       ) : (
-        <div className="rounded-md border border-border overflow-x-auto">
+        <div className="overflow-x-auto rounded-[10px] border border-hairline bg-surface-1">
           <Table>
             <TableHeader>
               <TableRow>
@@ -80,7 +80,7 @@ export default function StructureTab({
                   </TableCell>
                   <TableCell>{col.nullable ? "YES" : "NO"}</TableCell>
                   <TableCell className="font-mono text-xs">
-                    {col.default ?? <span className="text-muted-foreground">—</span>}
+                    {col.default ?? <span className="text-ink-muted">—</span>}
                   </TableCell>
                   <TableCell>
                     {col.isPrimaryKey && (
@@ -94,7 +94,7 @@ export default function StructureTab({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                        className="size-7 text-destructive hover:bg-destructive/10"
                         disabled={col.isPrimaryKey}
                         onClick={() => {
                           if (confirm(`Drop column "${col.name}"?`)) {
@@ -102,7 +102,7 @@ export default function StructureTab({
                           }
                         }}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="size-3.5" />
                       </Button>
                     </TableCell>
                   )}

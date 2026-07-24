@@ -39,7 +39,7 @@ export default function DbMultiSelect({
           <button
             type="button"
             onClick={toggleAll}
-            className="text-xs text-primary hover:underline font-medium"
+            className="text-xs font-medium text-accent-blue hover:underline"
           >
             {allSelected ? "Deselect All" : "Select All"}
           </button>
@@ -55,9 +55,9 @@ export default function DbMultiSelect({
         />
       )}
 
-      <div className="max-h-40 overflow-y-auto border border-border rounded-md p-2 flex flex-wrap gap-1.5 bg-muted/20">
+      <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded-md border border-hairline bg-surface-1 p-2">
         {filtered.length === 0 ? (
-          <span className="text-xs text-muted-foreground p-1">
+          <span className="p-1 text-xs text-ink-muted">
             {search ? "No matching databases" : "No databases available"}
           </span>
         ) : (
@@ -67,7 +67,7 @@ export default function DbMultiSelect({
               <Badge
                 key={d.name}
                 variant={isSelected ? "default" : "outline"}
-                className="cursor-pointer text-xs select-none transition-colors"
+                className="cursor-pointer text-xs transition-colors select-none"
                 onClick={() => {
                   if (isSelected) {
                     onChange(selected.filter((x) => x !== d.name));

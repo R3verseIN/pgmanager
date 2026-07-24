@@ -20,33 +20,65 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-accent-blue: var(--accent-blue);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-hairline: var(--hairline);
+  --color-hairline-soft: var(--hairline-soft);
+  --color-gradient-magenta: var(--gradient-magenta);
+  --color-gradient-violet: var(--gradient-violet);
+  --color-gradient-orange: var(--gradient-orange);
+  --color-gradient-coral: var(--gradient-coral);
+  --color-success: var(--success);
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 15px;
+  --radius-xl: 20px;
+  --radius-xxl: 30px;
+  --radius-pill: 100px;
+  --radius-full: 9999px;
+
+  --font-display: 'Mona Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 @layer base {
   :root {
-    --background: #09090b;
-    --foreground: #fafafa;
-    --card: #121318;
-    --card-foreground: #fafafa;
-    --popover: #121318;
-    --popover-foreground: #fafafa;
-    --primary: #fafafa;
-    --primary-foreground: #09090b;
-    --secondary: #27272a;
-    --secondary-foreground: #fafafa;
-    --muted: #27272a;
-    --muted-foreground: #a1a1aa;
-    --accent: #27272a;
-    --accent-foreground: #fafafa;
+    --background: #090909;
+    --foreground: #ffffff;
+    --card: #141414;
+    --card-foreground: #ffffff;
+    --popover: #141414;
+    --popover-foreground: #ffffff;
+    --primary: #ffffff;
+    --primary-foreground: #000000;
+    --secondary: #1c1c1c;
+    --secondary-foreground: #ffffff;
+    --muted: #1c1c1c;
+    --muted-foreground: #999999;
+    --accent: #1c1c1c;
+    --accent-foreground: #ffffff;
     --destructive: #7f1d1d;
-    --destructive-foreground: #fafafa;
-    --border: rgba(255, 255, 255, 0.1);
-    --input: rgba(255, 255, 255, 0.1);
-    --ring: rgba(255, 255, 255, 0.2);
+    --destructive-foreground: #ffffff;
+    --border: #262626;
+    --input: #1c1c1c;
+    --ring: rgba(0, 153, 255, 0.15);
+    --accent-blue: #0099ff;
+    --ink: #ffffff;
+    --ink-muted: #999999;
+    --surface-1: #141414;
+    --surface-2: #1c1c1c;
+    --hairline: #262626;
+    --hairline-soft: #1a1a1a;
+    --gradient-magenta: #d44df0;
+    --gradient-violet: #6a4cf5;
+    --gradient-orange: #ff7a3d;
+    --gradient-coral: #ff5577;
+    --success: #22c55e;
     --radius: 0.5rem;
   }
 }
@@ -57,6 +89,7 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--font-body);
+    font-feature-settings: 'cv01', 'cv05', 'cv09', 'cv11';
   }
 }

@@ -75,11 +75,11 @@ export default function DatabaseDetail() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="size-4" />
         </Button>
         <div>
-          <h1 className="text-xl font-semibold">{name}</h1>
-          <p className="text-sm text-muted-foreground">Database browser</p>
+          <h1 className="text-xl font-(--font-display) tracking-tight">{name}</h1>
+          <p className="text-sm text-ink-muted">Database browser</p>
         </div>
       </div>
 
@@ -87,12 +87,12 @@ export default function DatabaseDetail() {
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="tables">
-              <Table className="mr-2 h-4 w-4" />
+              <Table className="mr-2 size-4" />
               Tables
             </TabsTrigger>
             {(isAdmin || isDev) && (
               <TabsTrigger value="query">
-                <Terminal className="mr-2 h-4 w-4" />
+                <Terminal className="mr-2 size-4" />
                 SQL Console
               </TabsTrigger>
             )}
@@ -103,22 +103,22 @@ export default function DatabaseDetail() {
           <div className="flex items-center gap-2">
             {(isAdmin || isDev) && (
               <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="mr-2 size-4" />
                 Create Table
               </Button>
             )}
             <Button variant="outline" onClick={() => refetchTables()}>
-              <RefreshCw className="mr-2 h-4 w-4" />
+              <RefreshCw className="mr-2 size-4" />
               Refresh
             </Button>
           </div>
 
           {tablesLoading ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="py-8 text-center text-ink-muted">
               Loading...
             </div>
           ) : !tables?.length ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="py-8 text-center text-ink-muted">
               No tables found.
             </div>
           ) : (
@@ -129,14 +129,14 @@ export default function DatabaseDetail() {
                   onClick={() =>
                     navigate(`/databases/${name}/tables/${t.name}`)
                   }
-                  className="flex items-center justify-between rounded-md border border-border p-4 text-left hover:bg-accent/50 hover:border-accent transition-all duration-200 animate-in fade-in slide-in-from-bottom-2 fill-mode-both"
+                  className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex items-center justify-between rounded-md border border-hairline bg-surface-1 p-4 text-left transition-all duration-200 hover:border-border hover:bg-surface-2"
                   style={{ animationDelay: `${i * 30}ms` }}
                 >
                   <div className="flex items-center gap-3">
-                    <Table className="h-5 w-5 text-muted-foreground" />
+                    <Table className="size-5 text-ink-muted" />
                     <div>
                       <div className="font-medium">{t.name}</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs text-ink-muted">
                         ~{t.rowCount.toLocaleString()} rows
                       </div>
                     </div>

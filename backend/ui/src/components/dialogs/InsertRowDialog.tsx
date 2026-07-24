@@ -72,11 +72,11 @@ export default function InsertRowDialog({
               <div key={col.name} className="space-y-1">
                 <Label>
                   {col.name}
-                  <span className="text-xs text-muted-foreground ml-1">
+                  <span className="ml-1 text-xs text-ink-muted">
                     ({col.type})
                   </span>
                   {col.nullable && (
-                    <span className="text-xs text-muted-foreground ml-1">
+                    <span className="ml-1 text-xs text-ink-muted">
                       nullable
                     </span>
                   )}

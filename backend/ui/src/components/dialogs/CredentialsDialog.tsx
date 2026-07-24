@@ -37,7 +37,7 @@ export default function CredentialsDialog({
         <div className="space-y-4 font-mono text-sm">
           {credentials.map((cred) => (
             <div key={cred.label}>
-              <div className="text-xs text-muted-foreground">{cred.label}</div>
+              <div className="text-xs text-ink-muted">{cred.label}</div>
               <div
                 className={`flex items-center gap-2 ${cred.isSecret ? "text-destructive" : ""}`}
               >
@@ -45,7 +45,7 @@ export default function CredentialsDialog({
                   {cred.value}
                 </span>
                 <Copy
-                  className="h-4 w-4 cursor-pointer text-muted-foreground"
+                  className="size-4 cursor-pointer text-ink-muted transition-colors hover:text-foreground"
                   onClick={() => copyText(cred.value)}
                 />
               </div>

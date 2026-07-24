@@ -75,38 +75,38 @@ export default function DataTab({
       <div className="flex items-center gap-2">
         {canWrite && (
           <Button onClick={onInsert}>
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="mr-2 size-4" />
             Insert Row
           </Button>
         )}
         <Button variant="outline" onClick={() => refetch()}>
-          <RefreshCw className="mr-2 h-4 w-4" />
+          <RefreshCw className="mr-2 size-4" />
           Refresh
         </Button>
       </div>
 
       {isLoading ? (
-        <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        <div className="py-8 text-center text-ink-muted">Loading...</div>
       ) : !data?.columns?.length ? (
-        <div className="text-center py-8 text-muted-foreground">No data.</div>
+        <div className="py-8 text-center text-ink-muted">No data.</div>
       ) : (
-        <div className="rounded-md border border-border overflow-x-auto">
+        <div className="overflow-x-auto rounded-[10px] border border-hairline bg-surface-1">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/50">
+              <tr className="border-b border-hairline bg-surface-2/50">
                 {data.columns.map((col: string) => (
                   <th
                     key={col}
-                    className="px-3 py-2 text-left font-medium text-muted-foreground cursor-pointer hover:text-foreground select-none"
+                    className="cursor-pointer px-3 py-2 text-left font-medium text-ink-muted select-none hover:text-foreground"
                     onClick={() => handleSort(col)}
                   >
                     <div className="flex items-center gap-1">
                       {col}
                       {sortCol === col &&
                         (sortDir === "asc" ? (
-                          <ChevronUp className="h-3 w-3" />
+                          <ChevronUp className="size-3" />
                         ) : (
-                          <ChevronDown className="h-3 w-3" />
+                          <ChevronDown className="size-3" />
                         ))}
                     </div>
                   </th>
@@ -118,12 +118,12 @@ export default function DataTab({
               {data.rows.map((row: unknown[], i: number) => (
                 <tr
                   key={i}
-                  className="border-b border-border last:border-0 hover:bg-muted/30"
+                  className="border-b border-hairline last:border-0 hover:bg-surface-2/30"
                 >
                   {row.map((cell: unknown, j: number) => (
-                    <td key={j} className="px-3 py-2 font-mono text-xs max-w-50 truncate">
+                    <td key={j} className="max-w-50 truncate px-3 py-2 font-mono text-xs">
                       {cell === null ? (
-                        <span className="text-muted-foreground italic">NULL</span>
+                        <span className="text-ink-muted italic">NULL</span>
                       ) : (
                         String(cell)
                       )}
@@ -135,18 +135,18 @@ export default function DataTab({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7"
+                          className="size-7"
                           onClick={() => onEdit(row)}
                         >
-                          <Edit className="h-3.5 w-3.5" />
+                          <Edit className="size-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                          className="size-7 text-destructive hover:bg-destructive/10"
                           onClick={() => onDelete(buildRowWhere(row, data.columns))}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="size-3.5" />
                         </Button>
                       </div>
                     </td>
@@ -160,7 +160,7 @@ export default function DataTab({
 
       {data && data.total > PAGE_SIZE && (
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">
+          <span className="text-sm text-ink-muted">
             Page {page + 1} of {totalPages} ({data.total.toLocaleString()} total)
           </span>
           <div className="flex gap-2">
@@ -170,7 +170,7 @@ export default function DataTab({
               disabled={page === 0}
               onClick={() => setPage(page - 1)}
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="size-4" />
             </Button>
             <Button
               variant="outline"
@@ -178,7 +178,7 @@ export default function DataTab({
               disabled={page >= totalPages - 1}
               onClick={() => setPage(page + 1)}
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="size-4" />
             </Button>
           </div>
         </div>

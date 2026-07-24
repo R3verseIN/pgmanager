@@ -38,7 +38,7 @@ export function Tabs({ defaultValue = "", value: controlledValue, onValueChange,
 
 export function TabsList({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground", className)}>
+    <div className={cn("inline-flex h-10 items-center justify-center gap-1 rounded-full bg-surface-1 p-1 text-ink-muted", className)}>
       {children}
     </div>
   );
@@ -49,8 +49,9 @@ export function TabsTrigger({ value, children, className }: { value: string; chi
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-        ctx.value === value && "bg-background text-foreground shadow",
+        "inline-flex items-center justify-center rounded-full px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+        ctx.value === value && "bg-surface-2 text-foreground shadow",
+        ctx.value !== value && "text-ink-muted hover:text-foreground",
         className
       )}
       onClick={() => ctx.onValueChange(value)}
@@ -64,7 +65,7 @@ export function TabsContent({ value, children, className }: { value: string; chi
   const ctx = useTabs();
   if (ctx.value !== value) return null;
   return (
-    <div className={cn("mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", className)}>
+    <div className={cn("mt-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none", className)}>
       {children}
     </div>
   );

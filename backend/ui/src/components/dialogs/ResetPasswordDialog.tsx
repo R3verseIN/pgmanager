@@ -87,19 +87,19 @@ export default function ResetPasswordDialog({
         </DialogHeader>
         {result ? (
           <div className="space-y-4 py-4">
-            <div className="p-4 border rounded-lg bg-muted/50 space-y-3">
+            <div className="space-y-3 rounded-md border border-hairline bg-surface-2 p-4">
               <div className="space-y-1">
-                <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                <Label className="text-xs tracking-wider text-ink-muted uppercase">
                   New Password
                 </Label>
                 <div className="flex gap-2">
-                  <Input readOnly value={result} className="font-mono bg-background" />
+                  <Input readOnly value={result} className="bg-surface-1 font-mono" />
                   <Button variant="outline" size="icon" onClick={() => copyText(result)}>
-                    <Copy className="h-4 w-4" />
+                    <Copy className="size-4" />
                   </Button>
                 </div>
               </div>
-              <p className="text-sm text-destructive font-medium">
+              <p className="text-sm font-medium text-destructive">
                 Please copy this password now. You won't be able to see it again!
               </p>
             </div>
@@ -130,7 +130,7 @@ export default function ResetPasswordDialog({
                     }}
                     title="Auto-generate password"
                   >
-                    <Dices className="h-4 w-4" />
+                    <Dices className="size-4" />
                   </Button>
                 </div>
               </div>

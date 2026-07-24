@@ -27,13 +27,13 @@ export default function AccessLevelSelect({
       >
         {(["read", "write", "ddl", "full"] as const).map((level) => (
           <RadioGroupItem key={level} value={level} id={`${idPrefix}-${level}`}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-bold text-sm tracking-wider uppercase group-data-[state=checked]:text-primary">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-sm font-bold tracking-wider uppercase group-data-[state=checked]:text-foreground">
                 {level}
               </span>
-              <div className="h-2 w-2 rounded-full bg-primary opacity-0 group-data-[state=checked]:opacity-100 transition-opacity" />
+              <div className="size-2 rounded-full bg-foreground opacity-0 transition-opacity group-data-[state=checked]:opacity-100" />
             </div>
-            <span className="text-[10px] sm:text-xs text-muted-foreground leading-snug">
+            <span className="text-[10px] leading-snug text-ink-muted sm:text-xs">
               {accessLabels[level]}
             </span>
           </RadioGroupItem>

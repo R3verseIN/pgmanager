@@ -34,16 +34,16 @@ export default function TableDetail() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate(`/databases/${dbName}`)}>
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="size-4" />
         </Button>
         <div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link to={`/databases/${dbName}`} className="hover:underline">
+          <div className="flex items-center gap-2 text-sm text-ink-muted">
+            <Link to={`/databases/${dbName}`} className="hover:text-accent-blue transition-colors">
               {dbName}
             </Link>
             <span>/</span>
           </div>
-          <h1 className="text-xl font-semibold">{table}</h1>
+          <h1 className="text-xl font-semibold font-[var(--font-display)] tracking-tight">{table}</h1>
         </div>
       </div>
 

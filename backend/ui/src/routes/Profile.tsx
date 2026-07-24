@@ -62,39 +62,39 @@ export default function Profile() {
   }
 
   return (
-    <div className="space-y-6 max-w-lg">
+    <div className="max-w-lg space-y-6">
       <div>
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+          className="mb-4 flex items-center gap-2 text-sm text-ink-muted transition-colors hover:text-foreground"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="size-4" />
           Back
         </button>
-        <h1 className="text-xl font-semibold">Profile</h1>
-        <p className="text-sm text-muted-foreground">Manage your account settings</p>
+        <h1 className="text-xl font-(--font-display) tracking-tight">Profile</h1>
+        <p className="text-sm text-ink-muted">Manage your account settings</p>
       </div>
 
       {/* User Info */}
-      <div className="rounded-md border border-border p-6 space-y-4">
+      <div className="space-y-4 rounded-md border border-hairline bg-surface-1 p-6">
         <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
-            <User className="h-6 w-6" />
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-surface-2 text-foreground">
+            <User className="size-6" />
           </div>
           <div>
             <div className="font-medium">{user?.username}</div>
-            <div className="text-sm text-muted-foreground capitalize">{user?.role}</div>
+            <div className="text-sm text-ink-muted capitalize">{user?.role}</div>
           </div>
         </div>
       </div>
 
       {/* Change Password */}
-      <div className="rounded-md border border-border p-6 space-y-4">
+      <div className="space-y-4 rounded-md border border-hairline bg-surface-1 p-6">
         <div className="flex items-center gap-2">
-          <Key className="h-4 w-4" />
+          <Key className="size-4" />
           <h2 className="font-medium">Change Password</h2>
         </div>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-muted">
           After changing your password, you will be logged out and need to sign in again.
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">

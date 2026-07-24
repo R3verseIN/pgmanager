@@ -30,13 +30,13 @@ export default function DesktopSidebar({
   return (
     <aside
       className={cn(
-        "hidden md:flex flex-col border-r border-border bg-card transition-all duration-300 shrink-0",
+        "hidden shrink-0 flex-col border-r border-hairline bg-background transition-all duration-300 md:flex",
         isCollapsed ? "w-20" : "w-56"
       )}
     >
       <div
         className={cn(
-          "flex h-14 items-center gap-3 border-b border-border overflow-hidden transition-all duration-300",
+          "flex h-14 items-center gap-3 overflow-hidden border-b border-hairline transition-all duration-300",
           isCollapsed ? "justify-center px-0" : "px-4"
         )}
       >
@@ -46,20 +46,20 @@ export default function DesktopSidebar({
               <img
                 src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png"
                 alt="pgmanager logo"
-                className="h-8 w-8 object-contain shrink-0"
+                className="size-8 shrink-0 object-contain"
               />
             </TooltipTrigger>
             <TooltipContent side="right">pgmanager</TooltipContent>
           </Tooltip>
         </TooltipProvider>
         {!isCollapsed && (
-          <span className="font-semibold text-foreground text-sm whitespace-nowrap animate-in fade-in">
+          <span className="animate-in fade-in text-sm font-(--font-display) whitespace-nowrap text-foreground">
             pgmanager
           </span>
         )}
       </div>
 
-      <nav className="flex-1 space-y-1 p-2 overflow-y-auto">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-2">
         <NavItem
           to="/"
           icon={Database}
@@ -89,7 +89,7 @@ export default function DesktopSidebar({
         )}
       </nav>
 
-      <div className="border-t border-border p-2 space-y-2">
+      <div className="space-y-2 border-t border-hairline p-2">
         <div
           className={cn(
             "flex items-center rounded-md p-2",
@@ -99,16 +99,16 @@ export default function DesktopSidebar({
           {!isCollapsed ? (
             <Link
               to="/profile"
-              className="flex items-center gap-3 overflow-hidden hover:bg-accent/50 rounded-md transition-colors"
+              className="flex items-center gap-3 overflow-hidden rounded-md transition-colors hover:bg-surface-1"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
-                <User className="h-4 w-4" />
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-foreground">
+                <User className="size-4" />
               </div>
               <div className="flex flex-col overflow-hidden">
                 <span className="truncate text-sm font-medium text-foreground">
                   {user?.username}
                 </span>
-                <span className="truncate text-xs text-muted-foreground capitalize">
+                <span className="truncate text-xs text-ink-muted capitalize">
                   {user?.role}
                 </span>
               </div>
@@ -118,14 +118,14 @@ export default function DesktopSidebar({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link to="/profile">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
-                      <User className="h-4 w-4" />
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-foreground">
+                      <User className="size-4" />
                     </div>
                   </Link>
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   <p className="font-medium">{user?.username}</p>
-                  <p className="text-xs text-muted-foreground capitalize">
+                  <p className="text-xs text-ink-muted capitalize">
                     {user?.role}
                   </p>
                 </TooltipContent>
@@ -136,10 +136,10 @@ export default function DesktopSidebar({
           {!isCollapsed && (
             <button
               onClick={logout}
-              className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+              className="shrink-0 rounded-full p-2 text-ink-muted transition-colors hover:bg-surface-1 hover:text-foreground"
               title="Logout"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="size-4" />
             </button>
           )}
         </div>
@@ -150,9 +150,9 @@ export default function DesktopSidebar({
               <TooltipTrigger asChild>
                 <button
                   onClick={logout}
-                  className="flex w-full items-center justify-center rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                  className="flex w-full items-center justify-center rounded-full p-2 text-ink-muted transition-colors hover:bg-surface-1 hover:text-foreground"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut className="size-4" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">Logout</TooltipContent>
@@ -163,14 +163,14 @@ export default function DesktopSidebar({
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           className={cn(
-            "flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-all duration-200 active:scale-95",
+            "flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-ink-muted transition-all duration-200 hover:bg-surface-1 hover:text-foreground active:scale-95",
             isCollapsed ? "justify-center" : "gap-3 hover:translate-x-1"
           )}
         >
           {isCollapsed ? (
-            <ChevronRight className="h-4 w-4 shrink-0" />
+            <ChevronRight className="size-4 shrink-0" />
           ) : (
-            <ChevronLeft className="h-4 w-4 shrink-0" />
+            <ChevronLeft className="size-4 shrink-0" />
           )}
           {!isCollapsed && <span>Collapse Sidebar</span>}
         </button>

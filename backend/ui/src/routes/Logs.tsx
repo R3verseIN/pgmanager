@@ -26,16 +26,16 @@ function LogDetail({ detail }: { detail: any }) {
   const isLong = rawStr.length > 40;
   
   if (!isLong) {
-    return <span className="font-mono text-xs text-muted-foreground">{rawStr}</span>;
+    return <span className="font-mono text-xs text-ink-muted">{rawStr}</span>;
   }
   
   return (
     <>
       <button 
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 px-2 py-1 bg-muted/50 hover:bg-muted border rounded text-xs font-medium text-muted-foreground transition-colors"
+        className="inline-flex items-center gap-1.5 rounded-sm border border-hairline bg-surface-2 px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-surface-2/80"
       >
-        <FileJson className="h-3.5 w-3.5" />
+        <FileJson className="size-3.5" />
         View Details
       </button>
 
@@ -44,8 +44,8 @@ function LogDetail({ detail }: { detail: any }) {
           <DialogHeader>
             <DialogTitle>Audit Log Details</DialogTitle>
           </DialogHeader>
-          <div className="mt-4 p-4 rounded-md bg-muted/50 border overflow-x-auto">
-            <pre className="text-xs font-mono text-foreground whitespace-pre-wrap">
+          <div className="mt-4 overflow-x-auto rounded-md border border-hairline bg-surface-2 p-4">
+            <pre className="font-mono text-xs whitespace-pre-wrap text-foreground">
               {prettyStr}
             </pre>
           </div>
@@ -82,11 +82,11 @@ export default function Logs() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Audit Logs</h1>
-          <p className="text-sm text-muted-foreground">Track all database operations and user actions</p>
+          <h1 className="text-xl font-(--font-display) tracking-tight">Audit Logs</h1>
+          <p className="text-sm text-ink-muted">Track all database operations and user actions</p>
         </div>
         <Button variant="outline" onClick={() => refetch()}>
-          <RefreshCw className="mr-2 h-4 w-4" />
+          <RefreshCw className="mr-2 size-4" />
           Refresh
         </Button>
       </div>
@@ -122,26 +122,26 @@ export default function Logs() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        <div className="py-8 text-center text-ink-muted">Loading...</div>
       ) : !data?.entries?.length ? (
-        <div className="text-center py-8 text-muted-foreground">No log entries found.</div>
+        <div className="py-8 text-center text-ink-muted">No log entries found.</div>
       ) : (
-        <div className="rounded-md border border-border overflow-x-auto">
+        <div className="overflow-x-auto rounded-md border border-hairline bg-surface-1">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Time</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">User</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Action</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Database</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Table</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Detail</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">IP</th>
+              <tr className="border-b border-hairline bg-surface-2/50">
+                <th className="px-3 py-2 text-left font-medium text-ink-muted">Time</th>
+                <th className="px-3 py-2 text-left font-medium text-ink-muted">User</th>
+                <th className="px-3 py-2 text-left font-medium text-ink-muted">Action</th>
+                <th className="px-3 py-2 text-left font-medium text-ink-muted">Database</th>
+                <th className="px-3 py-2 text-left font-medium text-ink-muted">Table</th>
+                <th className="px-3 py-2 text-left font-medium text-ink-muted">Detail</th>
+                <th className="px-3 py-2 text-left font-medium text-ink-muted">IP</th>
               </tr>
             </thead>
             <tbody>
               {data.entries.map((entry: AuditLogEntry) => (
-                <tr key={entry.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                <tr key={entry.id} className="border-b border-hairline last:border-0 hover:bg-surface-2/30">
                   <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
                     {new Date(entry.createdAt).toLocaleString()}
                   </td>
@@ -164,7 +164,7 @@ export default function Logs() {
 
       {data && data.total > LIMIT && (
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">
+          <span className="text-sm text-ink-muted">
             Page {page + 1} of {totalPages} ({data.total.toLocaleString()} entries)
           </span>
           <div className="flex gap-2">

@@ -84,20 +84,20 @@ export default function Users() {
       {/* Postgres Users Section */}
       <div className="space-y-4">
         <div>
-          <h2 className="text-xl font-semibold">Postgres Users</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-xl font-(--font-display) tracking-tight">Postgres Users</h2>
+          <p className="text-sm text-ink-muted">
             Manage database users and their access controls.
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-2">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-2">
           <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" /> Create User
+            <Plus className="mr-2 size-4" /> Create User
           </Button>
           <Button
             variant="outline"
             onClick={() => queryClient.invalidateQueries({ queryKey: ["users"] })}
           >
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            <RefreshCw className="mr-2 size-4" /> Refresh
           </Button>
         </div>
         <PostgresUsersTable
@@ -120,20 +120,20 @@ export default function Users() {
       {/* Auth Users Section */}
       <div className="space-y-4">
         <div>
-          <h2 className="text-xl font-semibold">Auth Users</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-xl font-(--font-display) tracking-tight">Auth Users</h2>
+          <p className="text-sm text-ink-muted">
             Manage users who can log into this dashboard.
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-2">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-2">
           <Button onClick={() => setAuthCreateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" /> Create Auth User
+            <Plus className="mr-2 size-4" /> Create Auth User
           </Button>
           <Button
             variant="outline"
             onClick={() => queryClient.invalidateQueries({ queryKey: ["authUsers"] })}
           >
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            <RefreshCw className="mr-2 size-4" /> Refresh
           </Button>
         </div>
         <AuthUsersTable
