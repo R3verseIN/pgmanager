@@ -140,8 +140,12 @@ export default function DatabasesTable() {
                 </TableCell>
               </TableRow>
             ) : (
-              databases.map((db: Database) => (
-                <TableRow key={db.name}>
+              databases.map((db: Database, i: number) => (
+                <TableRow 
+                  key={db.name} 
+                  className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
+                  style={{ animationDelay: `${i * 50}ms` }}
+                >
                   <TableCell className="font-medium">{db.name}</TableCell>
                   {isAdmin && (
                     <TableCell>

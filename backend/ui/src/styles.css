@@ -44,9 +44,9 @@
     --accent-foreground: #fafafa;
     --destructive: #7f1d1d;
     --destructive-foreground: #fafafa;
-    --border: #27272a;
-    --input: #27272a;
-    --ring: #d4d4d8;
+    --border: rgba(255, 255, 255, 0.1);
+    --input: rgba(255, 255, 255, 0.1);
+    --ring: rgba(255, 255, 255, 0.2);
     --radius: 0.5rem;
   }
 }

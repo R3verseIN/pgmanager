@@ -323,8 +323,12 @@ export default function Users() {
                   <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No users found.</TableCell>
                 </TableRow>
               ) : (
-                users.map((user: User) => (
-                  <TableRow key={user.username}>
+                users.map((user: User, i: number) => (
+                  <TableRow 
+                    key={user.username}
+                    className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
+                    style={{ animationDelay: `${i * 50}ms` }}
+                  >
                     <TableCell className="font-medium">{user.username}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-2">
@@ -417,8 +421,12 @@ export default function Users() {
                   <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">No auth users found.</TableCell>
                 </TableRow>
               ) : (
-                authUsers.map((authUser: AuthUserListItem) => (
-                  <TableRow key={authUser.id}>
+                authUsers.map((authUser: AuthUserListItem, i: number) => (
+                  <TableRow 
+                    key={authUser.id}
+                    className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
+                    style={{ animationDelay: `${i * 50}ms` }}
+                  >
                     <TableCell className="font-medium">{authUser.username}</TableCell>
                     <TableCell>
                       <Badge variant={authUser.role === "admin" ? "destructive" : "secondary"}>

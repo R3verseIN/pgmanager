@@ -47,7 +47,7 @@ function AppLayout() {
           isCollapsed ? "w-20" : "w-56"
         )}
       >
-        <div className="flex h-14 items-center gap-3 border-b border-border px-4 overflow-hidden">
+        <div className={cn("flex h-14 items-center gap-3 border-b border-border overflow-hidden transition-all duration-300", isCollapsed ? "justify-center px-0" : "px-4")}>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -74,11 +74,11 @@ function AppLayout() {
                 <Link
                   to="/"
                   className={cn(
-                    "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 active:scale-95",
                     isCollapsed ? "justify-center" : "gap-3",
                     selectedKey === "databases"
                       ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground hover:translate-x-1"
                   )}
                 >
                   <Database className="h-4 w-4 shrink-0" />
@@ -94,11 +94,11 @@ function AppLayout() {
                   <Link
                     to="/users"
                     className={cn(
-                      "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors mt-1",
+                      "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 active:scale-95 mt-1",
                       isCollapsed ? "justify-center" : "gap-3",
                       selectedKey === "users"
                         ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground hover:translate-x-1"
                     )}
                   >
                     <UsersIcon className="h-4 w-4 shrink-0" />
@@ -173,8 +173,8 @@ function AppLayout() {
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
             className={cn(
-              "flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors",
-              isCollapsed ? "justify-center" : "gap-3"
+              "flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-all duration-200 active:scale-95",
+              isCollapsed ? "justify-center" : "gap-3 hover:translate-x-1"
             )}
           >
             {isCollapsed ? <ChevronRight className="h-4 w-4 shrink-0" /> : <ChevronLeft className="h-4 w-4 shrink-0" />}
