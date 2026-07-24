@@ -54,6 +54,9 @@ func main() {
 		log.Printf("warning: failed to ensure pgbouncer auth: %v", err)
 	}
 
+	// Generate HBA file on startup
+	h.RebuildPgBouncerHBA()
+
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
@@ -61,6 +64,7 @@ func main() {
 			if err := auth.EnsurePgbouncerAuth(context.Background(), pool); err != nil {
 				log.Printf("warning: pgbouncer auth healthcheck failed: %v", err)
 			}
+			h.RebuildPgBouncerHBA()
 		}
 	}()
 

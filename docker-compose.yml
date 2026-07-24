@@ -14,6 +14,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    ports:
+      - "5433:5432"
 
   app:
     build: .
@@ -28,6 +30,7 @@ services:
       PGSSLMODE: disable
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
+      - pgbouncer_shared:/etc/pgbouncer/shared
     depends_on:
       db:
         condition: service_healthy
@@ -41,6 +44,7 @@ services:
     volumes:
       - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - pgdata:/var/lib/postgresql/data:ro
+      - pgbouncer_shared:/etc/pgbouncer/shared
     depends_on:
       db:
         condition: service_healthy
@@ -58,3 +62,4 @@ services:
 
 volumes:
   pgdata:
+  pgbouncer_shared:

@@ -43,10 +43,11 @@ func extractUserDBFromPath(path string) (string, string) {
 }
 
 type userRecord struct {
-	Username  string   `json:"username"`
-	Databases []string `json:"databases"`
-	Access    string   `json:"access"`
-	CreatedAt string   `json:"createdAt"`
+	Username   string   `json:"username"`
+	Databases  []string `json:"databases"`
+	Access     string   `json:"access"`
+	AllowedIps []string `json:"allowedIps"`
+	CreatedAt  string   `json:"createdAt"`
 }
 
 type createUserResponse struct {
@@ -55,20 +56,23 @@ type createUserResponse struct {
 	Databases        []string `json:"databases"`
 	ConnectionString string   `json:"connectionString"`
 	Access           string   `json:"access"`
+	AllowedIps       []string `json:"allowedIps"`
 	CreatedAt        string   `json:"createdAt"`
 }
 
 type createUserRequest struct {
-	Databases []string `json:"databases"`
-	Username  string   `json:"username"`
-	Access    string   `json:"access"`
-	Password  string   `json:"password,omitempty"`
+	Databases  []string `json:"databases"`
+	Username   string   `json:"username"`
+	Access     string   `json:"access"`
+	Password   string   `json:"password,omitempty"`
+	AllowedIps []string `json:"allowedIps,omitempty"`
 }
 
 type updateUserRequest struct {
-	Password         string `json:"password,omitempty"`
-	Access           string `json:"access,omitempty"`
-	GeneratePassword bool   `json:"generatePassword,omitempty"`
+	Password         string   `json:"password,omitempty"`
+	Access           string   `json:"access,omitempty"`
+	GeneratePassword bool     `json:"generatePassword,omitempty"`
+	AllowedIps       []string `json:"allowedIps,omitempty"`
 }
 
 type addDatabaseRequest struct {
@@ -106,6 +110,7 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 			username      TEXT NOT NULL,
 			database_name TEXT NOT NULL,
 			access        TEXT NOT NULL CHECK (access IN ('read', 'write', 'ddl', 'full')),
+			allowed_ips   TEXT[] NOT NULL DEFAULT ARRAY['0.0.0.0/0']::TEXT[],
 			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (username, database_name)
 		);
@@ -117,6 +122,7 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 	_, err = h.pool.Exec(ctx, `
 		ALTER TABLE managed_users DROP CONSTRAINT IF EXISTS managed_users_pkey;
 		ALTER TABLE managed_users ADD PRIMARY KEY (username, database_name);
+		ALTER TABLE managed_users ADD COLUMN IF NOT EXISTS allowed_ips TEXT[] NOT NULL DEFAULT ARRAY['0.0.0.0/0']::TEXT[];
 	`)
 	if err != nil {
 		return err
@@ -198,7 +204,8 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT u.username, MIN(u.access) AS access, MAX(u.created_at) AS created_at,
-			ARRAY_AGG(u.database_name) AS databases
+			ARRAY_AGG(u.database_name) AS databases,
+			MIN(u.allowed_ips) AS allowed_ips
 		FROM managed_users u
 		INNER JOIN pg_catalog.pg_roles r ON r.rolname = u.username
 		GROUP BY u.username
@@ -214,7 +221,7 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u userRecord
 		var createdAt time.Time
-		if err := rows.Scan(&u.Username, &u.Access, &createdAt, &u.Databases); err != nil {
+		if err := rows.Scan(&u.Username, &u.Access, &createdAt, &u.Databases, &u.AllowedIps); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to scan row")
 			return
 		}
@@ -303,9 +310,12 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if len(req.AllowedIps) == 0 {
+			req.AllowedIps = []string{"0.0.0.0/0"}
+		}
 		_, err = h.pool.Exec(ctx,
-			"INSERT INTO managed_users (username, database_name, access) VALUES ($1, $2, $3)",
-			req.Username, db, req.Access,
+			"INSERT INTO managed_users (username, database_name, access, allowed_ips) VALUES ($1, $2, $3, $4)",
+			req.Username, db, req.Access, req.AllowedIps,
 		)
 		if err != nil {
 			h.rollbackUser(ctx, req.Username)
@@ -330,6 +340,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Databases:        req.Databases,
 		ConnectionString: connStr,
 		Access:           req.Access,
+		AllowedIps:       req.AllowedIps,
 		CreatedAt:        time.Now().Format(time.RFC3339),
 	})
 
@@ -341,9 +352,12 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	h.writeAuditLog(r.Context(), auditEntry{
 		Username:  username,
 		Action:    "create_user",
-		Detail:    map[string]interface{}{"target": req.Username, "databases": req.Databases, "access": req.Access},
+		Detail:    map[string]interface{}{"target": req.Username, "databases": req.Databases, "access": req.Access, "allowedIps": req.AllowedIps},
 		IPAddress: clientIP(r),
 	})
+	
+	// Rebuild PgBouncer firewall rules async
+	go h.RebuildPgBouncerHBA()
 }
 
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
@@ -414,6 +428,13 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if len(req.AllowedIps) > 0 {
+		_, err = h.pool.Exec(ctx, "UPDATE managed_users SET allowed_ips = $1 WHERE username = $2", req.AllowedIps, username)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update allowed_ips: "+err.Error())
+			return
+		}
+	}
 
 	resp := map[string]string{"status": "updated"}
 	if newPassword != "" {
@@ -429,9 +450,12 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	h.writeAuditLog(r.Context(), auditEntry{
 		Username:  actor,
 		Action:    "update_user",
-		Detail:    map[string]interface{}{"target": username, "access": req.Access},
+		Detail:    map[string]interface{}{"target": username, "access": req.Access, "allowedIps": req.AllowedIps},
 		IPAddress: clientIP(r),
 	})
+	
+	// Rebuild PgBouncer firewall rules async
+	go h.RebuildPgBouncerHBA()
 }
 
 func (h *Handler) AddUserDatabase(w http.ResponseWriter, r *http.Request) {
@@ -581,6 +605,9 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		Detail:    map[string]interface{}{"target": username},
 		IPAddress: clientIP(r),
 	})
+	
+	// Rebuild PgBouncer firewall rules async
+	go h.RebuildPgBouncerHBA()
 }
 
 func (h *Handler) getUserDatabases(ctx context.Context, username string) []string {
