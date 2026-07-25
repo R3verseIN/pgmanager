@@ -101,9 +101,13 @@ export async function restoreBackup(
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
     const parsed = body && typeof body === "object" && "error" in body
-      ? body as { error: string }
+      ? body as { error: string; tables?: string[]; message?: string }
       : null;
-    throw new ApiError(parsed?.error || `HTTP ${response.status}`);
+    throw new ApiError(
+      parsed?.message || parsed?.error || `HTTP ${response.status}`,
+      response.status,
+      parsed?.tables
+    );
   }
 
   return response.json();

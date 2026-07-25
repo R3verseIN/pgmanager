@@ -2,7 +2,9 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +49,49 @@ type backupInspectResponse struct {
 type backupRestoreRequest struct {
 	Database  string `json:"database"`
 	DropFirst bool   `json:"dropFirst"`
+}
+
+// sanitizeRedact removes sensitive values from error output.
+// pg_dump/pg_restore never output passwords to stderr (they use PGPASSWORD env var),
+// but we defensively redact any that might appear from Go error messages (e.g., DSN strings).
+func sanitizeRedact(s string) string {
+	// Redact DSN strings: postgres://user:PASSWORD@host/db → postgres://user:***@host/db
+	s = regexp.MustCompile(`(postgres://[^:]+:)[^@]+(@)`).ReplaceAllString(s, "${1}***${2}")
+	// Redact PGPASSWORD=VALUE patterns
+	s = regexp.MustCompile(`(?i)(PGPASSWORD=)\S+`).ReplaceAllString(s, "${1}***")
+	// Redact password=VALUE patterns in connection strings
+	s = regexp.MustCompile(`(?i)(password=)\S+`).ReplaceAllString(s, "${1}***")
+	return s
+}
+
+func (h *Handler) listExistingTables(ctx context.Context, dbName string) ([]string, error) {
+	host, port, user, password := h.getPgCredentials()
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, dbName)
+	dbPool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer dbPool.Close()
+
+	rows, err := dbPool.Query(ctx, `
+		SELECT tablename FROM pg_catalog.pg_tables
+		WHERE schemaname = 'public'
+		ORDER BY tablename
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		tables = append(tables, name)
+	}
+	return tables, nil
 }
 
 func (h *Handler) ListBackupDatabases(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +138,7 @@ func (h *Handler) ListBackupTables(w http.ResponseWriter, r *http.Request) {
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, dbName)
 	dbPool, err := pgxpool.New(r.Context(), dsn)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to connect to database: "+err.Error())
+		writeError(w, http.StatusInternalServerError, "failed to connect to database")
 		return
 	}
 	defer dbPool.Close()
@@ -104,7 +150,7 @@ func (h *Handler) ListBackupTables(w http.ResponseWriter, r *http.Request) {
 		ORDER BY schemaname, tablename
 	`)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list tables: "+err.Error())
+		writeError(w, http.StatusInternalServerError, "failed to list tables: "+sanitizeRedact(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -172,53 +218,83 @@ func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
 
 	args = append(args, req.Database)
 
+	// Buffer pg_dump output to temp file before streaming to client.
+	// This prevents corrupt/partial downloads if pg_dump fails mid-stream.
+	tmpDir, err := os.MkdirTemp("", "backup-stream-*")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create temp directory")
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	tmpPath := filepath.Join(tmpDir, "dump.dump")
+
 	cmd := exec.Command("pg_dump", args...)
 	cmd.Env = append(os.Environ(), "PGPASSWORD="+password)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	stdout, err := cmd.StdoutPipe()
+	outFile, err := os.Create(tmpPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create pipe: "+err.Error())
+		writeError(w, http.StatusInternalServerError, "failed to create temp file")
+		return
+	}
+	cmd.Stdout = outFile
+
+	err = cmd.Run()
+	outFile.Close()
+
+	if err != nil {
+		log.Printf("pg_dump failed for %s: %v: %s", req.Database, err, stderr.String())
+
+		stderrStr := stderr.String()
+		var errMsg string
+		switch {
+		case strings.Contains(stderrStr, "does not exist"):
+			errMsg = "database does not exist"
+		case strings.Contains(stderrStr, "connection refused"):
+			errMsg = "database connection refused"
+		case strings.Contains(stderrStr, "permission denied"):
+			errMsg = "permission denied"
+		case strings.Contains(stderrStr, "No such file"):
+			errMsg = "database not found"
+		default:
+			errMsg = "backup failed: " + sanitizeRedact(stderrStr)
+		}
+
+		writeError(w, http.StatusInternalServerError, errMsg)
 		return
 	}
 
-	if err := cmd.Start(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start pg_dump: "+err.Error())
+	// Verify file was created and has content
+	fileInfo, statErr := os.Stat(tmpPath)
+	if statErr != nil || fileInfo.Size() == 0 {
+		writeError(w, http.StatusInternalServerError, "backup produced empty file")
 		return
 	}
 
+	// Stream the completed temp file to the client
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := fmt.Sprintf("%s_%s.dump", req.Database, timestamp)
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
 
-	flusher, canFlush := w.(http.Flusher)
-
-	buf := make([]byte, 32*1024)
-	for {
-		n, readErr := stdout.Read(buf)
-		if n > 0 {
-			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-				break
-			}
-			if canFlush {
-				flusher.Flush()
-			}
-		}
-		if readErr != nil {
-			break
-		}
+	tmpFile, err := os.Open(tmpPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read backup file")
+		return
 	}
+	defer tmpFile.Close()
 
-	if err := cmd.Wait(); err != nil {
-		log.Printf("pg_dump failed for %s: %v: %s", req.Database, err, stderr.String())
+	if _, err := io.Copy(w, tmpFile); err != nil {
+		log.Printf("failed to stream backup for %s: %v", req.Database, err)
 		return
 	}
 
-	log.Printf("backup completed: %s", filename)
+	log.Printf("backup completed: %s (%d bytes)", filename, fileInfo.Size())
 }
 
 func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +330,38 @@ func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpFile.Close()
 
+	// Verify file starts with a valid pg_dump format header
+	// Custom format: "PGDMP" (0x50 0x47 0x44 0x4D 0x50)
+	// Tar format: 0x1F 0x8B (gzip) or "ustar" at offset 257
+	// Plain SQL: "--" or "/*"
+	headerBuf := make([]byte, 300)
+	if f, err := os.Open(tmpPath); err == nil {
+		n, _ := f.Read(headerBuf)
+		f.Close()
+		if n < 5 {
+			writeError(w, http.StatusBadRequest, "file too small to be a valid backup")
+			return
+		}
+		headerStr := string(headerBuf[:n])
+		// Check for plain SQL dumps
+		if strings.Contains(headerStr, "-- PostgreSQL database dump") ||
+			strings.Contains(headerStr, "-- Dumped by pg_dump") ||
+			strings.Contains(headerStr, "CREATE DATABASE") {
+			writeError(w, http.StatusBadRequest,
+				"this appears to be a plain SQL dump. Only PostgreSQL custom format (.dump created with pg_dump -Fc) is supported for restore. Re-create the backup using the pgmanager web UI or run: pg_dump -Fc -h HOST -U USER DATABASE > backup.dump")
+			return
+		}
+		// Check for valid pg_dump custom format magic: "PGDMP"
+		if n >= 5 && string(headerBuf[:5]) != "PGDMP" {
+			// Check for tar format (bytes at offset 257: "ustar")
+			isTar := n >= 263 && string(headerBuf[257:263]) == "ustar\x00"
+			if !isTar {
+				writeError(w, http.StatusBadRequest, "not a valid PostgreSQL backup file (expected PGDMP custom format)")
+				return
+			}
+		}
+	}
+
 	_, port, user, password := h.getPgCredentials()
 
 	cmd := exec.Command("pg_restore", "-l", "-h", "localhost", "-p", port, "-U", user, tmpPath)
@@ -261,8 +369,14 @@ func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid or corrupt backup file: "+string(output))
-		return
+		// pg_restore -l returns exit code 1 for warnings — output is still valid
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			// Continue parsing — output is valid despite warnings
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid or corrupt backup file: "+sanitizeRedact(string(output)))
+			return
+		}
 	}
 
 	tables := make([]backupTableEntry, 0)
@@ -354,6 +468,19 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		dropFirst, _ = strconv.ParseBool(df)
 	}
 
+	// Check for existing tables when dropFirst is false — prevent silent data duplication
+	if !dropFirst {
+		existingTables, err := h.listExistingTables(r.Context(), targetDB)
+		if err == nil && len(existingTables) > 0 {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":   "target database has existing tables",
+				"tables":  existingTables,
+				"message": fmt.Sprintf("Database '%s' contains %d table(s). Enable 'Drop target first' to replace them, or restore to a new database.", targetDB, len(existingTables)),
+			})
+			return
+		}
+	}
+
 	file, _, err := r.FormFile("file")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "file is required")
@@ -384,12 +511,12 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	if dropFirst {
 		dropSQL := "DROP DATABASE IF EXISTS " + quoteIdent(targetDB) + " WITH (FORCE)"
 		if _, err := h.pool.Exec(r.Context(), dropSQL); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to drop database: "+err.Error())
+			writeError(w, http.StatusInternalServerError, "failed to drop database: "+sanitizeRedact(err.Error()))
 			return
 		}
 		createSQL := "CREATE DATABASE " + quoteIdent(targetDB)
 		if _, err := h.pool.Exec(r.Context(), createSQL); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create database: "+err.Error())
+			writeError(w, http.StatusInternalServerError, "failed to create database: "+sanitizeRedact(err.Error()))
 			return
 		}
 	}
@@ -411,8 +538,25 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		log.Printf("pg_restore failed for %s: %v: %s", targetDB, err, stderr.String())
-		writeError(w, http.StatusInternalServerError, "restore failed: "+stderr.String())
+		// pg_restore returns exit code 1 for warnings (missing owner, privilege issues)
+		// These are non-fatal — data WAS restored successfully.
+		// However, some fatal errors also return exit code 1, so check stderr.
+		stderrStr := stderr.String()
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 &&
+			!strings.Contains(stderrStr, "FATAL:") &&
+			!strings.Contains(stderrStr, "ERROR:") {
+			log.Printf("restore completed with warnings for %s: %s", targetDB, stderrStr)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success":  true,
+				"database": targetDB,
+				"message":  "restore completed with warnings",
+				"warnings": sanitizeRedact(stderrStr),
+			})
+			return
+		}
+		log.Printf("pg_restore failed for %s: %v: %s", targetDB, err, stderrStr)
+		writeError(w, http.StatusInternalServerError, "restore failed: "+sanitizeRedact(stderrStr))
 		return
 	}
 

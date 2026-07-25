@@ -1,3 +1,6 @@
+# Test-only override: exposes DB port for local Go tests.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db
+# NEVER use this in production.
 services:
   db:
     ports:

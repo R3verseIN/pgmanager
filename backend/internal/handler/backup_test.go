@@ -9,7 +9,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func setupBackupTest(t *testing.T) (*Handler, context.Context, string) {
@@ -22,17 +25,29 @@ func setupBackupTest(t *testing.T) (*Handler, context.Context, string) {
 	}
 
 	// Set env vars for getPgCredentials() used by ListBackupTables, StreamBackup, etc.
-	// testPool connects to localhost:5433 with password "pgmanager"
 	t.Setenv("PGHOST", "localhost")
 	t.Setenv("PGPORT", "5433")
 	t.Setenv("PGUSER", "pgmanager")
 
-	// Create temp password file
+	// Create temp password file — must match actual DB password
+	pw := "test1234"
+	if v := os.Getenv("TEST_DATABASE_URL"); v != "" {
+		// Extract password from TEST_DATABASE_URL
+		if i := strings.Index(v, "://"); i >= 0 {
+			rest := v[i+3:]
+			if j := strings.Index(rest, "@"); j >= 0 {
+				userInfo := rest[:j]
+				if k := strings.Index(userInfo, ":"); k >= 0 {
+					pw = userInfo[k+1:]
+				}
+			}
+		}
+	}
 	tmpPW, err := os.CreateTemp("", "pg-pw-*.txt")
 	if err != nil {
 		t.Fatalf("create temp password file: %v", err)
 	}
-	tmpPW.WriteString("pgmanager")
+	tmpPW.WriteString(pw)
 	tmpPW.Close()
 	t.Setenv("SECRET_PATH", tmpPW.Name())
 	t.Cleanup(func() { os.Remove(tmpPW.Name()) })
@@ -40,10 +55,19 @@ func setupBackupTest(t *testing.T) (*Handler, context.Context, string) {
 	testDB := "bktest_db"
 	pool.Exec(ctx, "DROP DATABASE IF EXISTS "+testDB+" WITH (FORCE)")
 	pool.Exec(ctx, "CREATE DATABASE "+testDB)
-	pool.Exec(ctx, `CREATE TABLE `+testDB+`.public.bktest_users (id SERIAL PRIMARY KEY, name TEXT)`)
-	pool.Exec(ctx, `INSERT INTO `+testDB+`.public.bktest_users (name) VALUES ('alice'), ('bob')`)
-	pool.Exec(ctx, `CREATE TABLE `+testDB+`.public.bktest_posts (id SERIAL PRIMARY KEY, title TEXT)`)
-	pool.Exec(ctx, `INSERT INTO `+testDB+`.public.bktest_posts (title) VALUES ('hello'), ('world')`)
+
+	// Connect to the test database to create tables (cross-db syntax not supported)
+	testDSN := "postgres://pgmanager:" + pw + "@localhost:5433/" + testDB + "?sslmode=disable"
+	testPool, err := pgxpool.New(ctx, testDSN)
+	if err != nil {
+		t.Fatalf("connect to test db: %v", err)
+	}
+	defer testPool.Close()
+
+	testPool.Exec(ctx, `CREATE TABLE bktest_users (id SERIAL PRIMARY KEY, name TEXT)`)
+	testPool.Exec(ctx, `INSERT INTO bktest_users (name) VALUES ('alice'), ('bob')`)
+	testPool.Exec(ctx, `CREATE TABLE bktest_posts (id SERIAL PRIMARY KEY, title TEXT)`)
+	testPool.Exec(ctx, `INSERT INTO bktest_posts (title) VALUES ('hello'), ('world')`)
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, "DROP DATABASE IF EXISTS "+testDB+" WITH (FORCE)")
@@ -51,6 +75,29 @@ func setupBackupTest(t *testing.T) (*Handler, context.Context, string) {
 	})
 
 	return h, ctx, testDB
+}
+
+func connectToDB(t *testing.T, dbName string) *pgxpool.Pool {
+	t.Helper()
+	pw := "test1234"
+	if v := os.Getenv("TEST_DATABASE_URL"); v != "" {
+		if i := strings.Index(v, "://"); i >= 0 {
+			rest := v[i+3:]
+			if j := strings.Index(rest, "@"); j >= 0 {
+				userInfo := rest[:j]
+				if k := strings.Index(userInfo, ":"); k >= 0 {
+					pw = userInfo[k+1:]
+				}
+			}
+		}
+	}
+	dsn := "postgres://pgmanager:" + pw + "@localhost:5433/" + dbName + "?sslmode=disable"
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("connect to %s: %v", dbName, err)
+	}
+	t.Cleanup(func() { pool.Close() })
+	return pool
 }
 
 func TestListBackupDatabases(t *testing.T) {
@@ -281,13 +328,16 @@ func TestStreamBackup_NonexistentDatabase(t *testing.T) {
 
 	h.StreamBackup(w, req)
 
-	// pg_dump may return non-zero but still write data, or return error
-	// We just verify it doesn't panic
-	if w.Code == http.StatusInternalServerError {
-		return
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for nonexistent database, got %d: %s", w.Code, w.Body.String())
 	}
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 or 500, got %d: %s", w.Code, w.Body.String())
+
+	var errResp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if errResp["error"] == "" {
+		t.Error("expected non-empty error message")
 	}
 }
 
@@ -444,10 +494,11 @@ func TestRestoreBackup_FullRestore(t *testing.T) {
 	}
 
 	// Verify tables exist in restored database
+	targetPool := connectToDB(t, "bktest_restore_target")
 	var tableCount int
-	h.pool.QueryRow(ctx, `
+	targetPool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM information_schema.tables
-		WHERE table_schema = 'public' AND current_database() = 'bktest_restore_target'
+		WHERE table_schema = 'public'
 	`).Scan(&tableCount)
 
 	if tableCount < 2 {
@@ -474,7 +525,8 @@ func TestRestoreBackup_DropFirst(t *testing.T) {
 	// Create restore target with existing table
 	h.pool.Exec(ctx, "DROP DATABASE IF EXISTS bktest_restore_target WITH (FORCE)")
 	h.pool.Exec(ctx, "CREATE DATABASE bktest_restore_target")
-	h.pool.Exec(ctx, `CREATE TABLE bktest_restore_target.public.existing_table (id SERIAL PRIMARY KEY)`)
+	targetPool := connectToDB(t, "bktest_restore_target")
+	targetPool.Exec(ctx, `CREATE TABLE existing_table (id SERIAL PRIMARY KEY)`)
 
 	// Restore with dropFirst
 	var buf bytes.Buffer
@@ -497,12 +549,11 @@ func TestRestoreBackup_DropFirst(t *testing.T) {
 
 	// Verify old table is gone
 	var exists bool
-	h.pool.QueryRow(ctx, `
+	targetPool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.tables
 			WHERE table_schema = 'public'
 			AND table_name = 'existing_table'
-			AND current_database() = 'bktest_restore_target'
 		)
 	`).Scan(&exists)
 
@@ -512,9 +563,9 @@ func TestRestoreBackup_DropFirst(t *testing.T) {
 
 	// Verify new tables exist
 	var tableCount int
-	h.pool.QueryRow(ctx, `
+	targetPool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM information_schema.tables
-		WHERE table_schema = 'public' AND current_database() = 'bktest_restore_target'
+		WHERE table_schema = 'public'
 	`).Scan(&tableCount)
 
 	if tableCount < 2 {
@@ -711,9 +762,10 @@ func TestBackupRoundTrip(t *testing.T) {
 	}
 
 	// 6. Verify data in restored database
+	targetPool := connectToDB(t, "bktest_restore_target")
 	var name string
-	err := h.pool.QueryRow(ctx,
-		"SELECT name FROM bktest_restore_target.public.bktest_users WHERE name = 'alice'").
+	err := targetPool.QueryRow(ctx,
+		"SELECT name FROM bktest_users WHERE name = 'alice'").
 		Scan(&name)
 	if err != nil {
 		t.Fatalf("failed to query restored data: %v", err)
@@ -724,12 +776,11 @@ func TestBackupRoundTrip(t *testing.T) {
 
 	// 7. Verify posts table does NOT exist (we only backed up users)
 	var postExists bool
-	h.pool.QueryRow(ctx, `
+	targetPool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.tables
 			WHERE table_schema = 'public'
 			AND table_name = 'bktest_posts'
-			AND current_database() = 'bktest_restore_target'
 		)
 	`).Scan(&postExists)
 
@@ -773,8 +824,218 @@ func TestBackupCreatesValidDumpFile(t *testing.T) {
 	f.Read(header)
 	f.Close()
 
-	// Custom format starts with 0x01 (PGDMP)
-	if header[0] != 0x01 {
-		t.Errorf("expected pg_dump custom format magic byte 0x01, got 0x%02x", header[0])
+	// PGDMP custom format starts with "PGDMP" (0x50 0x47 0x44 0x4D 0x50)
+	if string(header[:5]) != "PGDMP" {
+		t.Errorf("expected pg_dump custom format magic 'PGDMP', got %q", string(header[:5]))
+	}
+}
+
+func TestStreamBackup_NonexistentTable(t *testing.T) {
+	h, _, testDB := setupBackupTest(t)
+
+	body, _ := json.Marshal(backupCreateRequest{
+		Database: testDB,
+		Tables:   []string{"nonexistent_table_xyz"},
+	})
+	req := httptest.NewRequest("POST", "/api/backup/create", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.StreamBackup(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for nonexistent table, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRestoreBackup_ExistingTablesWithoutDropFirst(t *testing.T) {
+	h, ctx, testDB := setupBackupTest(t)
+
+	// Create backup
+	body, _ := json.Marshal(backupCreateRequest{Database: testDB})
+	req := httptest.NewRequest("POST", "/api/backup/create", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.StreamBackup(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("backup failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	dumpData := w.Body.Bytes()
+
+	// Create restore target with existing tables
+	h.pool.Exec(ctx, "DROP DATABASE IF EXISTS bktest_restore_target WITH (FORCE)")
+	h.pool.Exec(ctx, "CREATE DATABASE bktest_restore_target")
+	targetPool := connectToDB(t, "bktest_restore_target")
+	targetPool.Exec(ctx, `CREATE TABLE existing_table (id SERIAL PRIMARY KEY)`)
+
+	// Restore WITHOUT dropFirst — should get 409
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, _ := writer.CreateFormFile("file", "test.dump")
+	part.Write(dumpData)
+	writer.WriteField("database", "bktest_restore_target")
+	writer.WriteField("dropFirst", "false")
+	writer.Close()
+
+	restoreReq := httptest.NewRequest("POST", "/api/backup/restore", &buf)
+	restoreReq.Header.Set("Content-Type", writer.FormDataContentType())
+	restoreW := httptest.NewRecorder()
+
+	h.RestoreBackup(restoreW, restoreReq)
+
+	if restoreW.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", restoreW.Code, restoreW.Body.String())
+	}
+
+	var errResp map[string]any
+	if err := json.NewDecoder(restoreW.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if errResp["error"] == "" {
+		t.Error("expected error message in response")
+	}
+	tables, ok := errResp["tables"].([]any)
+	if !ok || len(tables) == 0 {
+		t.Error("expected tables list in 409 response")
+	}
+}
+
+func TestRestoreBackup_ExistingTablesWithDropFirst(t *testing.T) {
+	h, ctx, testDB := setupBackupTest(t)
+
+	// Create backup
+	body, _ := json.Marshal(backupCreateRequest{Database: testDB})
+	req := httptest.NewRequest("POST", "/api/backup/create", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.StreamBackup(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("backup failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	dumpData := w.Body.Bytes()
+
+	// Create restore target with existing tables
+	h.pool.Exec(ctx, "DROP DATABASE IF EXISTS bktest_restore_target WITH (FORCE)")
+	h.pool.Exec(ctx, "CREATE DATABASE bktest_restore_target")
+	targetPool := connectToDB(t, "bktest_restore_target")
+	targetPool.Exec(ctx, `CREATE TABLE existing_table (id SERIAL PRIMARY KEY)`)
+
+	// Restore WITH dropFirst — should succeed
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, _ := writer.CreateFormFile("file", "test.dump")
+	part.Write(dumpData)
+	writer.WriteField("database", "bktest_restore_target")
+	writer.WriteField("dropFirst", "true")
+	writer.Close()
+
+	restoreReq := httptest.NewRequest("POST", "/api/backup/restore", &buf)
+	restoreReq.Header.Set("Content-Type", writer.FormDataContentType())
+	restoreW := httptest.NewRecorder()
+
+	h.RestoreBackup(restoreW, restoreReq)
+
+	if restoreW.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", restoreW.Code, restoreW.Body.String())
+	}
+
+	// Verify old table is gone
+	var exists bool
+	targetPool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'public'
+			AND table_name = 'existing_table'
+		)
+	`).Scan(&exists)
+
+	if exists {
+		t.Error("existing_table should have been dropped before restore")
+	}
+}
+
+func TestInspectDump_PlainSQLDump(t *testing.T) {
+	h, _, _ := setupBackupTest(t)
+
+	// Create a plain SQL dump file
+	plainSQL := `--
+-- PostgreSQL database dump
+--
+
+-- Dumped from database version 17.0
+-- Dumped by pg_dump version 17.0
+
+SET statement_timeout = 0;
+CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT);
+`
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, _ := writer.CreateFormFile("file", "backup.sql")
+	part.Write([]byte(plainSQL))
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/backup/inspect", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+
+	h.InspectDump(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for plain SQL dump, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if errResp["error"] == "" {
+		t.Error("expected error message")
+	}
+	if !strings.Contains(errResp["error"], "plain SQL") {
+		t.Errorf("expected error to mention 'plain SQL', got: %s", errResp["error"])
+	}
+}
+
+func TestRestoreBackup_NewDatabaseWithoutDropFirst(t *testing.T) {
+	h, ctx, testDB := setupBackupTest(t)
+
+	// Create backup
+	body, _ := json.Marshal(backupCreateRequest{Database: testDB})
+	req := httptest.NewRequest("POST", "/api/backup/create", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.StreamBackup(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("backup failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	dumpData := w.Body.Bytes()
+
+	// Target doesn't exist yet — pg_restore will fail because DB doesn't exist
+	h.pool.Exec(ctx, "DROP DATABASE IF EXISTS bktest_restore_target WITH (FORCE)")
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, _ := writer.CreateFormFile("file", "test.dump")
+	part.Write(dumpData)
+	writer.WriteField("database", "bktest_restore_target")
+	writer.WriteField("dropFirst", "false")
+	writer.Close()
+
+	restoreReq := httptest.NewRequest("POST", "/api/backup/restore", &buf)
+	restoreReq.Header.Set("Content-Type", writer.FormDataContentType())
+	restoreW := httptest.NewRecorder()
+
+	h.RestoreBackup(restoreW, restoreReq)
+
+	// pg_restore fails because target DB doesn't exist
+	if restoreW.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for restore to non-existent DB, got %d: %s", restoreW.Code, restoreW.Body.String())
 	}
 }

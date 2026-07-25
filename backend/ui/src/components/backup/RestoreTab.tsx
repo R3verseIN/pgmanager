@@ -71,8 +71,16 @@ export function RestoreTab() {
     onSuccess: (data) => {
       setMessage({ type: "success", text: data.message });
     },
-    onError: (err: Error) => {
-      setMessage({ type: "error", text: err.message });
+    onError: (err: unknown) => {
+      const apiErr = err as { status?: number; message: string; tables?: string[] };
+      if (apiErr.status === 409 && apiErr.tables) {
+        setMessage({
+          type: "error",
+          text: `${apiErr.message}\n\nExisting tables: ${apiErr.tables.join(", ")}`,
+        });
+      } else {
+        setMessage({ type: "error", text: apiErr.message || "Restore failed" });
+      }
     },
   });
 
