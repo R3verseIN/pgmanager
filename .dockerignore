@@ -10,3 +10,4 @@ admin-cli/
 .dockerignore
 docker-compose*.yml
 *.md
+docs/
