@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"log"
 	"math/big"
 	"net/http"
 	"os"
@@ -86,7 +87,7 @@ func GeneratePassword(length int) string {
 	for i := range password {
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
 		if err != nil {
-			return "fallbackPwd1"
+			log.Fatalf("crypto/rand failed: %v", err)
 		}
 		password[i] = charset[n.Int64()]
 	}

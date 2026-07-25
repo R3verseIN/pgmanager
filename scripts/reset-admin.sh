@@ -19,6 +19,11 @@ if [ "$target_username" = "q" ] || [ -z "$target_username" ]; then
     exit 0
 fi
 
+if ! echo "$target_username" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+    echo "Error: username contains invalid characters (only letters, numbers, underscores, hyphens allowed)."
+    exit 1
+fi
+
 user_exists=$(psql -v ON_ERROR_STOP=1 -U pgmanager -d pgmanager -t -A -c \
     "SELECT COUNT(*) FROM auth_users WHERE username = \$\$${target_username}\$\$;")
 
@@ -43,6 +48,10 @@ else
     fi
     if [ "$pwlen" -gt 72 ]; then
         echo "Error: Password must be at most 72 characters (bcrypt limit)."
+        exit 1
+    fi
+    if ! echo "$NEW_PASSWORD" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+        echo "Error: password contains invalid characters (only letters, numbers, underscores, hyphens allowed)."
         exit 1
     fi
 fi

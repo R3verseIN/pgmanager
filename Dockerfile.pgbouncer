@@ -1,0 +1,4 @@
+FROM edoburu/pgbouncer
+COPY pgbouncer.ini /etc/pgbouncer/pgbouncer.ini
+RUN mkdir -p /etc/pgbouncer/shared && \
+    printf "host all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n" > /etc/pgbouncer/shared/pg_hba.conf

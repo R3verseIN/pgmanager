@@ -9,7 +9,6 @@ services:
       POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./scripts:/scripts:ro
     healthcheck:
       test: [ "CMD", "pg_isready", "-U", "pgmanager", "-d", "pgmanager" ]
       interval: 5s
@@ -35,13 +34,14 @@ services:
         condition: service_healthy
 
   pgbouncer:
-    image: edoburu/pgbouncer
+    build:
+      context: .
+      dockerfile: Dockerfile.pgbouncer
     ports:
       - "5432:6432"
     environment:
       DATABASE_URL: postgres://pgmanager:__PASSWORD__@db:5432/pgmanager?sslmode=disable
     volumes:
-      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - pgdata:/var/lib/postgresql/data:ro
       - pgbouncer_shared:/etc/pgbouncer/shared
     depends_on:

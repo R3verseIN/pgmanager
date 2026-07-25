@@ -20,6 +20,10 @@ else
         echo "Error: Password must be at most 72 characters (bcrypt limit)."
         exit 1
     fi
+    if ! echo "$NEW_PASSWORD" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+        echo "Error: password contains invalid characters (only letters, numbers, underscores, hyphens allowed)."
+        exit 1
+    fi
 fi
 
 echo "$NEW_PASSWORD" > "$PASSWORD_FILE"

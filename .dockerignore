@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.pgmanager
+*.exe
+.env
+target/
+backend/pgmanager
+.git
+admin-cli/
+.dockerignore
+docker-compose*.yml
+*.md
