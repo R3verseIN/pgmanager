@@ -3,17 +3,21 @@ import { DatabaseBackup, FileDown, Upload } from "lucide-react";
 import { BackupDatabaseTab } from "../components/backup/BackupDatabaseTab";
 import { BackupTablesTab } from "../components/backup/BackupTablesTab";
 import { RestoreTab } from "../components/backup/RestoreTab";
+import { useAuth } from "../contexts/AuthContext";
 
 type Tab = "database" | "tables" | "restore";
 
-const tabs = [
+const allTabs = [
   { key: "database" as Tab, label: "Backup Database", icon: DatabaseBackup },
   { key: "tables" as Tab, label: "Backup Tables", icon: FileDown },
-  { key: "restore" as Tab, label: "Restore", icon: Upload },
+  { key: "restore" as Tab, label: "Restore", icon: Upload, adminOnly: true },
 ];
 
 export default function Backups() {
+  const { isAdmin } = useAuth();
   const [tab, setTab] = useState<Tab>("database");
+
+  const tabs = allTabs.filter((t) => !t.adminOnly || isAdmin);
 
   return (
     <div className="space-y-6">

@@ -80,7 +80,7 @@ export default function AppLayout() {
           />
           <Route
             path="/backups"
-            element={user?.role === "admin" ? <Backups /> : <Navigate to="/" />}
+            element={user?.role === "admin" || user?.role === "dev" ? <Backups /> : <Navigate to="/" />}
           />
         </Routes>
       </main>

@@ -88,14 +88,6 @@ export default function DesktopSidebar({
               className="mt-1"
             />
             <NavItem
-              to="/backups"
-              icon={DatabaseBackup}
-              label="Backups"
-              isActive={selectedKey === "backups"}
-              isCollapsed={isCollapsed}
-              className="mt-1"
-            />
-            <NavItem
               to="/settings"
               icon={Shield}
               label="Settings"
@@ -104,6 +96,16 @@ export default function DesktopSidebar({
               className="mt-1"
             />
           </>
+        )}
+        {(user?.role === "admin" || user?.role === "dev") && (
+          <NavItem
+            to="/backups"
+            icon={DatabaseBackup}
+            label="Backups"
+            isActive={selectedKey === "backups"}
+            isCollapsed={isCollapsed}
+            className="mt-1"
+          />
         )}
       </nav>
 

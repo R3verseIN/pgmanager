@@ -160,6 +160,44 @@ func main() {
 			return
 		}
 
+		// Backup routes (admin or dev can list/download)
+		if method == "GET" && path == "/api/backup/databases" {
+			user := auth.GetUserFromContext(r.Context())
+			if user == nil || (user.Role != "admin" && user.Role != "dev") {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			h.ListBackupDatabases(w, r)
+			return
+		}
+		if method == "GET" && path == "/api/backup/tables" {
+			user := auth.GetUserFromContext(r.Context())
+			if user == nil || (user.Role != "admin" && user.Role != "dev") {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			h.ListBackupTables(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/backup/create" {
+			user := auth.GetUserFromContext(r.Context())
+			if user == nil || (user.Role != "admin" && user.Role != "dev") {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			h.StreamBackup(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/backup/inspect" {
+			user := auth.GetUserFromContext(r.Context())
+			if user == nil || (user.Role != "admin" && user.Role != "dev") {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			h.InspectDump(w, r)
+			return
+		}
+
 		// Admin-only routes
 		user := auth.GetUserFromContext(r.Context())
 		if user == nil || user.Role != "admin" {
@@ -236,23 +274,7 @@ func main() {
 			return
 		}
 
-		// Backup routes (admin only)
-		if method == "GET" && path == "/api/backup/databases" {
-			h.ListBackupDatabases(w, r)
-			return
-		}
-		if method == "GET" && path == "/api/backup/tables" {
-			h.ListBackupTables(w, r)
-			return
-		}
-		if method == "POST" && path == "/api/backup/create" {
-			h.StreamBackup(w, r)
-			return
-		}
-		if method == "POST" && path == "/api/backup/inspect" {
-			h.InspectDump(w, r)
-			return
-		}
+		// Restore is admin-only (must be after admin check below)
 		if method == "POST" && path == "/api/backup/restore" {
 			h.RestoreBackup(w, r)
 			return
