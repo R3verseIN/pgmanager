@@ -62,3 +62,4 @@ export type {
   BackupInspectResult,
   BackupRestoreResult,
 } from "./backup";
+export { fetchSettings, updateSettings } from "./settings";

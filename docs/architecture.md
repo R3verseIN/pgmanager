@@ -11,7 +11,7 @@ PostgreSQL should never be exposed directly to the internet. Every open port is 
 - Never exposing the PostgreSQL port — the `db` container's port 5432 is only reachable within the Docker network
 - PgBouncer as the sole gateway — all external connections go through PgBouncer, which enforces HBA-based authentication and per-user IP allowlisting
 - Protected system databases — `template0`, `template1`, `postgres`, and `pgmanager` cannot be modified through the UI
-- Blocked SQL patterns — dangerous statements like `DROP DATABASE`, `ALTER ROLE`, `GRANT`, `REVOKE`, `TRUNCATE` are blocked in the SQL console
+- SQL Console guards — dangerous statements like `DROP DATABASE`, `ALTER ROLE`, `GRANT`, `REVOKE`, `TRUNCATE` are rejected in the SQL Console to prevent accidental damage
 
 Direct database exposure creates two risks: security (brute force, SQL injection, unauthorized access) and scalability (PostgreSQL allocates shared memory per connection; uncontrolled connections exhaust resources). PgBouncer solves both by multiplexing many client connections through a limited pool of server connections.
 

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -59,6 +60,7 @@ func main() {
 
 	h := handler.NewWithDSN(pool, buildBaseDSN())
 	ah := handler.NewAuthHandler(pool)
+	sh := handler.NewSettingsHandler(pool)
 
 	if err := h.InitUserSchema(ctx); err != nil {
 		log.Printf("warning: failed to init user schema: %v", err)
@@ -74,6 +76,8 @@ func main() {
 			h.RebuildPgBouncerHBA()
 		}
 	}()
+
+	go startAuditLogRetention(ctx, pool)
 
 	mux := http.NewServeMux()
 
@@ -274,6 +278,16 @@ func main() {
 			return
 		}
 
+		// Settings routes (admin only)
+		if method == "GET" && path == "/api/settings" {
+			sh.GetSettings(w, r)
+			return
+		}
+		if method == "PUT" && path == "/api/settings" {
+			sh.UpdateSettings(w, r)
+			return
+		}
+
 		// Restore is admin-only (must be after admin check below)
 		if method == "POST" && path == "/api/backup/restore" {
 			h.RestoreBackup(w, r)
@@ -416,5 +430,52 @@ func spaHandler(distFS fs.FS) http.HandlerFunc {
 			r.URL.Path = "/"
 		}
 		fileServer.ServeHTTP(w, r)
+	}
+}
+
+func startAuditLogRetention(ctx context.Context, pool *pgxpool.Pool) {
+	// Run once after 1 hour, then every 24 hours
+	select {
+	case <-time.After(1 * time.Hour):
+	case <-ctx.Done():
+		return
+	}
+
+	cleanupAuditLog(ctx, pool)
+
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			cleanupAuditLog(ctx, pool)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func cleanupAuditLog(ctx context.Context, pool *pgxpool.Pool) {
+	var val string
+	err := pool.QueryRow(ctx,
+		`SELECT value FROM system_config WHERE key = 'audit_log_retention_days'`).
+		Scan(&val)
+	if err != nil {
+		return // key doesn't exist, skip
+	}
+
+	days, err := strconv.Atoi(val)
+	if err != nil || days <= 0 {
+		return // 0 = keep forever, or invalid value
+	}
+
+	tag, err := pool.Exec(ctx,
+		`DELETE FROM audit_log WHERE created_at < NOW() - ($1 || ' days')::INTERVAL`, val)
+	if err != nil {
+		log.Printf("audit log cleanup failed: %v", err)
+		return
+	}
+	if tag.RowsAffected() > 0 {
+		log.Printf("audit log cleanup: deleted %d rows older than %d days", tag.RowsAffected(), days)
 	}
 }

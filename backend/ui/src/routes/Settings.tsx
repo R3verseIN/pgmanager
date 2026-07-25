@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Shield, Loader2, Save } from "lucide-react";
+import { Shield, Loader2, Save, ScrollText } from "lucide-react";
 import {
   fetchPgBouncerDatabases,
   togglePgBouncerDatabase,
   fetchPgBouncerConfig,
   updatePgBouncerConfig,
+  fetchSettings,
+  updateSettings,
 } from "../api/client";
 import type { PgBouncerDatabase, PgBouncerConfig } from "../api/client";
 import { DatabaseAccessRow } from "../components/DatabaseAccessRow";
@@ -78,6 +80,32 @@ export default function Settings() {
       updatePgBouncerConfig(newConfig),
     onSuccess: (data) => {
       queryClient.setQueryData<PgBouncerConfig>(["pgbouncer-config"], data);
+    },
+  });
+
+  // --- Log Retention ---
+  const { data: settings, isLoading: settingsLoading } = useQuery({
+    queryKey: ["settings"],
+    queryFn: fetchSettings,
+  });
+
+  const [retentionDays, setRetentionDays] = useState(90);
+  const [originalRetentionDays, setOriginalRetentionDays] = useState(90);
+
+  useEffect(() => {
+    if (settings?.audit_log_retention_days !== undefined) {
+      const val = parseInt(settings.audit_log_retention_days) || 0;
+      setRetentionDays(val);
+      setOriginalRetentionDays(val);
+    }
+  }, [settings]);
+
+  const retentionMutation = useMutation({
+    mutationFn: (days: number) =>
+      updateSettings("audit_log_retention_days", days.toString()),
+    onSuccess: () => {
+      setOriginalRetentionDays(retentionDays);
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 
@@ -241,6 +269,65 @@ export default function Settings() {
                 }
               />
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Log Retention */}
+      <div className="rounded-lg border border-hairline bg-surface-1 p-4">
+        <div className="mb-4 flex items-center gap-3">
+          <ScrollText className="size-5 text-ink-muted" />
+          <div>
+            <h2 className="text-sm font-medium text-foreground">
+              Log Retention
+            </h2>
+            <p className="text-xs text-ink-muted">
+              Automatically delete old audit log entries
+            </p>
+          </div>
+        </div>
+
+        {settingsLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="size-5 animate-spin text-ink-muted" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm text-ink-muted">Retention (days)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={3650}
+                value={retentionDays}
+                onChange={(e) =>
+                  setRetentionDays(parseInt(e.target.value) || 0)
+                }
+                className="border-hairline bg-surface-2"
+              />
+              <p className="text-xs text-ink-muted">
+                Delete audit logs older than N days. Set to 0 to keep forever.
+                Cleanup runs daily.
+              </p>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button
+                disabled={
+                  retentionDays === originalRetentionDays ||
+                  retentionMutation.isPending
+                }
+                onClick={() => retentionMutation.mutate(retentionDays)}
+                size="sm"
+              >
+                {retentionMutation.isPending ? (
+                  <Loader2 className="mr-1 size-4 animate-spin" />
+                ) : (
+                  <Save className="mr-1 size-4" />
+                )}
+                Save
+              </Button>
+            </div>
           </div>
         )}
       </div>

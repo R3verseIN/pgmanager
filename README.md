@@ -33,7 +33,7 @@
 - **Database Management** — Create and delete databases through the web UI
 - **Table Operations** — Create tables, add/drop columns, manage schema
 - **Data Browser** — View, insert, update, delete rows with pagination and sorting
-- **SQL Console** — Run queries with built-in safety guards (blocked dangerous statements, 10s timeout)
+- **SQL Console** — Run queries with built-in safety guards (dangerous statements rejected, 10s timeout)
 - **User Management** — Create PostgreSQL users with granular access levels (read, write, ddl, full) and IP allowlisting
 - **Auth Users** — Manage web app login accounts with admin/dev/viewer roles
 - **Backup & Restore** — Stream backups via `pg_dump`, restore with `pg_restore`, inspect dump contents
@@ -146,12 +146,12 @@ See [docs/admin-cli.md](docs/admin-cli.md) for full documentation and recovery s
 
 - **No direct DB exposure** — PostgreSQL is not accessible from outside the Docker network
 - **PgBouncer as gateway** — HBA-based auth, per-user IP allowlisting, transaction pooling
-- **Blocked SQL patterns** — `DROP DATABASE`, `ALTER ROLE`, `GRANT`, `REVOKE`, `TRUNCATE` blocked in SQL console
-- **Statement timeout** — 10-second limit on raw queries
-- **Password hashing** — bcrypt via pgcrypto
+- **SQL Console guards** — Dangerous statements (`DROP DATABASE`, `ALTER ROLE`, `GRANT`, `REVOKE`, `TRUNCATE`) rejected in the SQL Console to prevent accidental damage
+- **Statement timeout** — 10-second limit on SQL Console queries
+- **Password hashing** — bcrypt
 - **Session security** — HttpOnly, SameSite=Strict cookies, 24-hour expiry
-- **Protected databases** — `template0`, `template1`, `postgres`, `pgmanager` cannot be modified
-- **Audit trail** — Every action logged with user, IP, and timestamp
+- **Protected databases** — `template0`, `template1`, `postgres`, `pgmanager` cannot be created or deleted through the UI
+- **Audit trail** — All state-changing actions logged with user, IP, and timestamp
 
 ## Development
 

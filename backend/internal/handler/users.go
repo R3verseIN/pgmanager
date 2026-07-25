@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -94,16 +95,13 @@ func GeneratePassword(length int) string {
 	return string(password)
 }
 
+var validPasswordPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
 func validPassword(s string) bool {
-	if len(s) < 8 || len(s) > 128 {
+	if len(s) < 8 || len(s) > 72 {
 		return false
 	}
-	for _, c := range s {
-		if c > 127 {
-			return false
-		}
-	}
-	return true
+	return validPasswordPattern.MatchString(s)
 }
 
 func (h *Handler) InitUserSchema(ctx context.Context) error {
