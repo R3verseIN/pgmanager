@@ -219,6 +219,14 @@ func main() {
 			h.ListLogs(w, r)
 			return
 		}
+		if method == "GET" && path == "/api/pgbouncer/databases" {
+			h.ListPgBouncerDatabases(w, r)
+			return
+		}
+		if method == "PUT" && strings.HasPrefix(path, "/api/pgbouncer/databases/") {
+			h.TogglePgBouncerDatabase(w, r)
+			return
+		}
 
 		http.NotFound(w, r)
 	})))

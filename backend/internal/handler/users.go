@@ -212,6 +212,25 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 		return err
 	}
 
+	_, err = h.pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS pgbouncer_databases (
+			database_name TEXT PRIMARY KEY,
+			allowed      BOOLEAN NOT NULL DEFAULT false,
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Seed default blocked system databases
+	_, _ = h.pool.Exec(ctx, `
+		INSERT INTO pgbouncer_databases (database_name, allowed)
+		VALUES ('pgmanager', false), ('postgres', false), ('template0', false), ('template1', false)
+		ON CONFLICT (database_name) DO NOTHING
+	`)
+
 	return nil
 }
 

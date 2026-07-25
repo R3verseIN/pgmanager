@@ -157,6 +157,13 @@ def ensure_hba_rules() -> None:
         print("pgmanager-init: HBA rules already configured")
 
 
+def revoke_system_db_connect() -> None:
+    print("pgmanager-init: revoking CONNECT on system databases from PUBLIC...")
+    run_sql("REVOKE CONNECT ON DATABASE postgres FROM PUBLIC", dbname="postgres")
+    run_sql("REVOKE CONNECT ON DATABASE template1 FROM PUBLIC", dbname="template1")
+    print("pgmanager-init: system database CONNECT revoked from PUBLIC")
+
+
 def main() -> int:
     print("pgmanager-init: starting...")
 
@@ -177,6 +184,7 @@ def main() -> int:
         ensure_database()
         ensure_pgbouncer_auth(auth_pass)
         ensure_hba_rules()
+        revoke_system_db_connect()
         print("pgmanager-init: all checks passed")
     except Exception as e:
         print(f"pgmanager-init: ERROR: {e}", file=sys.stderr)

@@ -10,6 +10,7 @@ import TableDetail from "./TableDetail";
 import Users from "./Users";
 import Logs from "./Logs";
 import Profile from "./Profile";
+import Settings from "./Settings";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -18,7 +19,9 @@ export default function AppLayout() {
       ? "users"
       : location.pathname === "/logs"
         ? "logs"
-        : "databases";
+        : location.pathname === "/settings"
+          ? "settings"
+          : "databases";
   const { user } = useAuth();
 
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -68,6 +71,10 @@ export default function AppLayout() {
             element={user?.role === "admin" ? <Logs /> : <Navigate to="/" />}
           />
           <Route path="/profile" element={<Profile />} />
+          <Route
+            path="/settings"
+            element={user?.role === "admin" ? <Settings /> : <Navigate to="/" />}
+          />
         </Routes>
       </main>
     </div>

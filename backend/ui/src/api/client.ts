@@ -40,3 +40,8 @@ export {
   executeQuery,
 } from "./data";
 export { fetchLogs } from "./logs";
+export {
+  fetchPgBouncerDatabases,
+  togglePgBouncerDatabase,
+} from "./pgbouncer";
+export type { PgBouncerDatabase } from "./pgbouncer";

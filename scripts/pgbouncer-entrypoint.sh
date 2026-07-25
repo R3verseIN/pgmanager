@@ -12,4 +12,7 @@ printf '"pgbouncer_auth" "%s"\n"pgmanager" "%s"\n' "$AUTH_PASS" "$PGMGR_PASS" \
 echo "pgmanager-pgbouncer: userlist.txt generated"
 cat /etc/pgbouncer/userlist.txt
 
-exec pgbouncer /etc/pgbouncer/pgbouncer.ini
+# Copy pgbouncer.ini to shared volume so Go app can modify [databases] section
+cp /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/shared/pgbouncer.ini
+
+exec pgbouncer /etc/pgbouncer/shared/pgbouncer.ini

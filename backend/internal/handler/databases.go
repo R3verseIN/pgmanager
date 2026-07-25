@@ -151,6 +151,13 @@ func (h *Handler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 		Name: name,
 	})
 
+	// Auto-insert into pgbouncer_databases (allowed by default for user databases)
+	h.pool.Exec(r.Context(),
+		`INSERT INTO pgbouncer_databases (database_name, allowed) VALUES ($1, true) ON CONFLICT (database_name) DO NOTHING`,
+		name)
+
+	h.RebuildPgBouncerHBA()
+
 	user := auth.GetUserFromContext(r.Context())
 	username := ""
 	if user != nil {
@@ -193,6 +200,12 @@ func (h *Handler) DeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+
+	// Auto-delete from pgbouncer_databases
+	h.pool.Exec(r.Context(),
+		`DELETE FROM pgbouncer_databases WHERE database_name = $1`, name)
+
+	h.RebuildPgBouncerHBA()
 
 	user := auth.GetUserFromContext(r.Context())
 	username := ""

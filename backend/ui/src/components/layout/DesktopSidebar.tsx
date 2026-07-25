@@ -8,6 +8,7 @@ import {
   LogOut,
   User,
   ScrollText,
+  Shield,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import NavItem from "./NavItem";
@@ -82,6 +83,14 @@ export default function DesktopSidebar({
               icon={ScrollText}
               label="Logs"
               isActive={selectedKey === "logs"}
+              isCollapsed={isCollapsed}
+              className="mt-1"
+            />
+            <NavItem
+              to="/settings"
+              icon={Shield}
+              label="Settings"
+              isActive={selectedKey === "settings"}
               isCollapsed={isCollapsed}
               className="mt-1"
             />
