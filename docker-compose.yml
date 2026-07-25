@@ -10,12 +10,10 @@ services:
       - ./scripts:/scripts:ro
       - ./init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "pgmanager", "-d", "pgmanager"]
+      test: [ "CMD", "pg_isready", "-U", "pgmanager", "-d", "pgmanager" ]
       interval: 5s
       timeout: 5s
       retries: 5
-    ports:
-      - "5433:5432"
 
   app:
     build: .
