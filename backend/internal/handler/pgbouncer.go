@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -162,39 +163,7 @@ func (h *Handler) RebuildPgBouncerHBA() {
 	// Rebuild [databases] section from pgbouncer_databases table
 	h.rebuildPgBouncerDatabases(ctx)
 
-	authPasswordPath := os.Getenv("PGBOUNCER_AUTH_PASSWORD")
-	if authPasswordPath == "" {
-		log.Printf("PGBOUNCER_AUTH_PASSWORD not set, cannot RELOAD PgBouncer")
-		return
-	}
-	authPassword := readPasswordFile(authPasswordPath)
-	if authPassword == "" {
-		log.Printf("pgbouncer_auth password file empty, cannot RELOAD PgBouncer")
-		return
-	}
-
-	pgbouncerAdminDB := fmt.Sprintf(
-		"postgres://pgbouncer_auth:%s@pgbouncer:6432/pgbouncer?sslmode=disable",
-		authPassword,
-	)
-
-	reloadCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	conn, err := pgx.Connect(reloadCtx, pgbouncerAdminDB)
-	if err != nil {
-		log.Printf("Failed to connect to PgBouncer admin DB for reload: %v", err)
-		return
-	}
-	defer conn.Close(ctx)
-
-	_, err = conn.Exec(ctx, "RELOAD;")
-	if err != nil {
-		log.Printf("Failed to issue RELOAD to PgBouncer: %v", err)
-		return
-	}
-
-	log.Println("PgBouncer successfully reloaded HBA rules")
+	h.reloadPgBouncer(ctx)
 }
 
 func (h *Handler) rebuildPgBouncerDatabases(ctx context.Context) {
@@ -268,4 +237,190 @@ func (h *Handler) rebuildPgBouncerDatabases(ctx context.Context) {
 	}
 
 	log.Printf("PgBouncer databases config regenerated (%d allowed)", len(dbLines))
+}
+
+type pgbouncerConfig struct {
+	PoolMode         string `json:"poolMode"`
+	DefaultPoolSize  int    `json:"defaultPoolSize"`
+	MaxClientConn    int    `json:"maxClientConn"`
+}
+
+func (h *Handler) GetPgBouncerConfig(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	config := pgbouncerConfig{
+		PoolMode:        "transaction",
+		DefaultPoolSize: 20,
+		MaxClientConn:   100,
+	}
+
+	rows, err := h.pool.Query(ctx, `SELECT key, value FROM system_config WHERE key LIKE 'pgbouncer_%'`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read pgbouncer config")
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			continue
+		}
+		switch key {
+		case "pgbouncer_pool_mode":
+			config.PoolMode = value
+		case "pgbouncer_default_pool_size":
+			if v, err := strconv.Atoi(value); err == nil {
+				config.DefaultPoolSize = v
+			}
+		case "pgbouncer_max_client_conn":
+			if v, err := strconv.Atoi(value); err == nil {
+				config.MaxClientConn = v
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, config)
+}
+
+func (h *Handler) UpdatePgBouncerConfig(w http.ResponseWriter, r *http.Request) {
+	var req pgbouncerConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	switch req.PoolMode {
+	case "session", "transaction", "statement":
+	default:
+		writeError(w, http.StatusBadRequest, "pool_mode must be session, transaction, or statement")
+		return
+	}
+	if req.DefaultPoolSize < 1 || req.DefaultPoolSize > 10000 {
+		writeError(w, http.StatusBadRequest, "default_pool_size must be 1-10000")
+		return
+	}
+	if req.MaxClientConn < 1 || req.MaxClientConn > 100000 {
+		writeError(w, http.StatusBadRequest, "max_client_conn must be 1-100000")
+		return
+	}
+
+	ctx := r.Context()
+	_, err := h.pool.Exec(ctx, `
+		INSERT INTO system_config (key, value) VALUES
+			('pgbouncer_pool_mode', $1),
+			('pgbouncer_default_pool_size', $2),
+			('pgbouncer_max_client_conn', $3)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+	`, req.PoolMode, strconv.Itoa(req.DefaultPoolSize), strconv.Itoa(req.MaxClientConn))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save pgbouncer config")
+		return
+	}
+
+	h.rebuildPgBouncerSection(ctx)
+	h.reloadPgBouncer(ctx)
+
+	writeJSON(w, http.StatusOK, req)
+}
+
+func (h *Handler) rebuildPgBouncerSection(ctx context.Context) {
+	config := map[string]string{
+		"pool_mode":         "transaction",
+		"default_pool_size": "20",
+		"max_client_conn":   "100",
+	}
+
+	rows, err := h.pool.Query(ctx, `SELECT key, value FROM system_config WHERE key LIKE 'pgbouncer_%'`)
+	if err != nil {
+		log.Printf("Failed to query pgbouncer config: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			continue
+		}
+		stripPrefix := strings.TrimPrefix(key, "pgbouncer_")
+		config[stripPrefix] = value
+	}
+
+	data, err := os.ReadFile(pgbouncerIniPath)
+	if err != nil {
+		log.Printf("Failed to read %s: %v", pgbouncerIniPath, err)
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var result []string
+	configKeys := map[string]bool{
+		"pool_mode": true, "default_pool_size": true, "max_client_conn": true,
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		replaced := false
+		for key, val := range config {
+			if strings.HasPrefix(trimmed, key+" =") || strings.HasPrefix(trimmed, key+"=") {
+				result = append(result, key+" = "+val)
+				replaced = true
+				delete(configKeys, key)
+				break
+			}
+		}
+		if !replaced {
+			result = append(result, line)
+		}
+	}
+
+	for key, val := range config {
+		if configKeys[key] {
+			result = append(result, key+" = "+val)
+		}
+	}
+
+	err = os.WriteFile(pgbouncerIniPath, []byte(strings.Join(result, "\n")), 0644)
+	if err != nil {
+		log.Printf("Failed to write %s: %v", pgbouncerIniPath, err)
+		return
+	}
+
+	log.Println("PgBouncer section config regenerated")
+}
+
+func (h *Handler) reloadPgBouncer(ctx context.Context) {
+	authPasswordPath := os.Getenv("PGBOUNCER_AUTH_PASSWORD")
+	if authPasswordPath == "" {
+		log.Printf("PGBOUNCER_AUTH_PASSWORD not set, cannot RELOAD PgBouncer")
+		return
+	}
+	authPassword := readPasswordFile(authPasswordPath)
+	if authPassword == "" {
+		log.Printf("pgbouncer_auth password file empty, cannot RELOAD PgBouncer")
+		return
+	}
+
+	pgbouncerAdminDB := fmt.Sprintf(
+		"postgres://pgbouncer_auth:%s@pgbouncer:6432/pgbouncer?sslmode=disable",
+		authPassword,
+	)
+
+	reloadCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	conn, err := pgx.Connect(reloadCtx, pgbouncerAdminDB)
+	if err != nil {
+		log.Printf("Failed to connect to PgBouncer admin DB for reload: %v", err)
+		return
+	}
+	defer conn.Close(ctx)
+
+	_, err = conn.Exec(ctx, "RELOAD;")
+	if err != nil {
+		log.Printf("Failed to issue RELOAD to PgBouncer: %v", err)
+		return
+	}
+
+	log.Println("PgBouncer successfully reloaded")
 }

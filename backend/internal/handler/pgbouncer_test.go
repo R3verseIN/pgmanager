@@ -294,3 +294,109 @@ func TestRebuildPgBouncerDatabases_Empty(t *testing.T) {
 		t.Errorf("no databases should appear when none allowed, got:\n%s", got)
 	}
 }
+
+func TestGetPgBouncerConfig_Defaults(t *testing.T) {
+	h, _ := setupPgBouncerDBTest(t)
+
+	req := httptest.NewRequest("GET", "/api/pgbouncer/config", nil)
+	w := httptest.NewRecorder()
+
+	h.GetPgBouncerConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var config pgbouncerConfig
+	if err := json.NewDecoder(w.Body).Decode(&config); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if config.PoolMode != "transaction" {
+		t.Errorf("expected pool_mode=transaction, got %s", config.PoolMode)
+	}
+	if config.DefaultPoolSize != 20 {
+		t.Errorf("expected default_pool_size=20, got %d", config.DefaultPoolSize)
+	}
+	if config.MaxClientConn != 100 {
+		t.Errorf("expected max_client_conn=100, got %d", config.MaxClientConn)
+	}
+}
+
+func TestUpdatePgBouncerConfig(t *testing.T) {
+	h, ctx := setupPgBouncerDBTest(t)
+
+	body, _ := json.Marshal(pgbouncerConfig{
+		PoolMode:        "session",
+		DefaultPoolSize: 50,
+		MaxClientConn:   500,
+	})
+	req := httptest.NewRequest("PUT", "/api/pgbouncer/config", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+
+	h.UpdatePgBouncerConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify saved to DB
+	var mode string
+	h.pool.QueryRow(ctx, `SELECT value FROM system_config WHERE key = 'pgbouncer_pool_mode'`).Scan(&mode)
+	if mode != "session" {
+		t.Errorf("expected pool_mode=session in DB, got %s", mode)
+	}
+}
+
+func TestUpdatePgBouncerConfig_InvalidMode(t *testing.T) {
+	h, _ := setupPgBouncerDBTest(t)
+
+	body, _ := json.Marshal(pgbouncerConfig{
+		PoolMode:        "invalid",
+		DefaultPoolSize: 20,
+		MaxClientConn:   100,
+	})
+	req := httptest.NewRequest("PUT", "/api/pgbouncer/config", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+
+	h.UpdatePgBouncerConfig(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRebuildPgBouncerSection(t *testing.T) {
+	h, ctx := setupPgBouncerDBTest(t)
+	iniPath := withTempIniFile(t)
+
+	h.pool.Exec(ctx, `
+		INSERT INTO system_config (key, value) VALUES
+			('pgbouncer_pool_mode', 'statement'),
+			('pgbouncer_default_pool_size', '10'),
+			('pgbouncer_max_client_conn', '200')
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+	`)
+
+	h.rebuildPgBouncerSection(ctx)
+
+	content, err := os.ReadFile(iniPath)
+	if err != nil {
+		t.Fatalf("read ini: %v", err)
+	}
+	got := string(content)
+
+	if !strings.Contains(got, "pool_mode = statement") {
+		t.Errorf("expected pool_mode = statement, got:\n%s", got)
+	}
+	if !strings.Contains(got, "default_pool_size = 10") {
+		t.Errorf("expected default_pool_size = 10, got:\n%s", got)
+	}
+	if !strings.Contains(got, "max_client_conn = 200") {
+		t.Errorf("expected max_client_conn = 200, got:\n%s", got)
+	}
+	// [databases] section should be preserved
+	if !strings.Contains(got, "[databases]") {
+		t.Errorf("expected [databases] section preserved, got:\n%s", got)
+	}
+}

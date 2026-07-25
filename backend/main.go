@@ -227,6 +227,14 @@ func main() {
 			h.TogglePgBouncerDatabase(w, r)
 			return
 		}
+		if method == "GET" && path == "/api/pgbouncer/config" {
+			h.GetPgBouncerConfig(w, r)
+			return
+		}
+		if method == "PUT" && path == "/api/pgbouncer/config" {
+			h.UpdatePgBouncerConfig(w, r)
+			return
+		}
 
 		http.NotFound(w, r)
 	})))

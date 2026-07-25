@@ -43,5 +43,7 @@ export { fetchLogs } from "./logs";
 export {
   fetchPgBouncerDatabases,
   togglePgBouncerDatabase,
+  fetchPgBouncerConfig,
+  updatePgBouncerConfig,
 } from "./pgbouncer";
-export type { PgBouncerDatabase } from "./pgbouncer";
+export type { PgBouncerDatabase, PgBouncerConfig } from "./pgbouncer";

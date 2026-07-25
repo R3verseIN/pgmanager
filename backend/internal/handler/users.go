@@ -231,6 +231,15 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 		ON CONFLICT (database_name) DO NOTHING
 	`)
 
+	// Seed default PgBouncer config
+	_, _ = h.pool.Exec(ctx, `
+		INSERT INTO system_config (key, value) VALUES
+			('pgbouncer_pool_mode', 'transaction'),
+			('pgbouncer_default_pool_size', '20'),
+			('pgbouncer_max_client_conn', '100')
+		ON CONFLICT (key) DO NOTHING
+	`)
+
 	return nil
 }
 
