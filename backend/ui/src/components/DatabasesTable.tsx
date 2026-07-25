@@ -124,7 +124,7 @@ export default function DatabasesTable() {
               filteredDatabases.map((db: Database, i: number) => (
                 <TableRow
                   key={db.name}
-                  className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-300"
+                  className="animate-in duration-300 fill-mode-both fade-in slide-in-from-bottom-2"
                   style={{ animationDelay: `${i * 50}ms` }}
                 >
                   <TableCell className="font-medium">

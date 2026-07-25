@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 
-function LogDetail({ detail }: { detail: any }) {
+function LogDetail({ detail }: { detail: unknown }) {
   const [open, setOpen] = useState(false);
   
   if (!detail) return <span>—</span>;

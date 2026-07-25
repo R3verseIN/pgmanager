@@ -29,7 +29,7 @@ export default function MobileSidebar({
         className="fixed inset-0 bg-background/80 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="animate-in slide-in-from-left fixed inset-y-0 left-0 flex w-64 flex-col border-r border-hairline bg-surface-1 p-4 shadow-lg">
+      <div className="fixed inset-y-0 left-0 flex w-64 animate-in flex-col border-r border-hairline bg-surface-1 p-4 shadow-lg slide-in-from-left">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img

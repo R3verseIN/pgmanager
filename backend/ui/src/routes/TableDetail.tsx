@@ -38,12 +38,12 @@ export default function TableDetail() {
         </Button>
         <div>
           <div className="flex items-center gap-2 text-sm text-ink-muted">
-            <Link to={`/databases/${dbName}`} className="hover:text-accent-blue transition-colors">
+            <Link to={`/databases/${dbName}`} className="transition-colors hover:text-accent-blue">
               {dbName}
             </Link>
             <span>/</span>
           </div>
-          <h1 className="text-xl font-semibold font-[var(--font-display)] tracking-tight">{table}</h1>
+          <h1 className="text-xl font-(--font-display) tracking-tight">{table}</h1>
         </div>
       </div>
 

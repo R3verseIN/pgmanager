@@ -53,7 +53,7 @@ export default function DesktopSidebar({
           </Tooltip>
         </TooltipProvider>
         {!isCollapsed && (
-          <span className="animate-in fade-in text-sm font-(--font-display) whitespace-nowrap text-foreground">
+          <span className="animate-in text-sm font-(--font-display) whitespace-nowrap text-foreground fade-in">
             pgmanager
           </span>
         )}

@@ -48,9 +48,9 @@ export default function DeleteRowConfirm({
           </DialogDescription>
         </DialogHeader>
         {where && (
-          <div className="py-4 space-y-2">
+          <div className="space-y-2 py-4">
             <p className="text-sm text-ink-muted">WHERE conditions:</p>
-            <div className="rounded-[10px] bg-surface-2 p-2 font-mono text-xs space-y-1">
+            <div className="space-y-1 rounded-[10px] bg-surface-2 p-2 font-mono text-xs">
               {where.map((w, i) => (
                 <div key={i}>
                   {w.column} {w.operator}{" "}

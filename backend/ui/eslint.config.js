@@ -20,6 +20,13 @@ export default tseslint.config(
     },
     rules: {
       ...tailwind.configs.recommended.rules,
+      "tailwindcss/no-custom-classname": ["warn", {
+        whitelist: [
+          "animate-.*", "fade-.*", "zoom-.*", "slide-.*",
+          "fill-mode-.*", "data-\\[state.*", "data-\\[side.*", "inputs"
+        ]
+      }],
+      "tailwindcss/no-unnecessary-arbitrary-value": "off",
     },
     settings: {
       tailwindcss: {

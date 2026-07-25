@@ -129,7 +129,7 @@ export default function DatabaseDetail() {
                   onClick={() =>
                     navigate(`/databases/${name}/tables/${t.name}`)
                   }
-                  className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex items-center justify-between rounded-md border border-hairline bg-surface-1 p-4 text-left transition-all duration-200 hover:border-border hover:bg-surface-2"
+                  className="flex animate-in items-center justify-between rounded-md border border-hairline bg-surface-1 p-4 text-left transition-all duration-200 fill-mode-both fade-in slide-in-from-bottom-2 hover:border-border hover:bg-surface-2"
                   style={{ animationDelay: `${i * 30}ms` }}
                 >
                   <div className="flex items-center gap-3">
