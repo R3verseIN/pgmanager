@@ -53,9 +53,16 @@ interface ColumnDraft {
   default: string;
 }
 
+function generateId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
 function newColumnDraft(): ColumnDraft {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     name: "",
     type: "TEXT",
     length: "",
@@ -69,7 +76,7 @@ function newColumnDraft(): ColumnDraft {
 
 function serialColumnDraft(): ColumnDraft {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     name: "id",
     type: "SERIAL",
     length: "",
