@@ -1,14 +1,15 @@
 services:
   db:
-    image: postgres:17-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.db
     environment:
       POSTGRES_USER: pgmanager
-      POSTGRES_DB: postgres
+      POSTGRES_DB: pgmanager
       POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts:/scripts:ro
-      - ./init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: [ "CMD", "pg_isready", "-U", "pgmanager", "-d", "pgmanager" ]
       interval: 5s
