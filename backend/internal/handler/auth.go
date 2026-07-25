@@ -60,22 +60,30 @@ type updateAuthUserRequest struct {
 }
 
 func (h *AuthHandler) SetupCheck(w http.ResponseWriter, r *http.Request) {
+	var completed bool
+	_ = h.pool.QueryRow(r.Context(),
+		"SELECT EXISTS(SELECT 1 FROM system_config WHERE key = 'setup_completed' AND value = 'true')",
+	).Scan(&completed)
+
 	var count int
-	err := h.pool.QueryRow(r.Context(), "SELECT COUNT(*) FROM auth_users").Scan(&count)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to check users")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"needsSetup": count == 0})
+	_ = h.pool.QueryRow(r.Context(), "SELECT COUNT(*) FROM auth_users").Scan(&count)
+
+	needsSetup := !completed && count == 0
+	writeJSON(w, http.StatusOK, map[string]bool{"needsSetup": needsSetup})
 }
 
 func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request) {
-	var count int
-	err := h.pool.QueryRow(r.Context(), "SELECT COUNT(*) FROM auth_users").Scan(&count)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to check users")
+	var completed bool
+	_ = h.pool.QueryRow(r.Context(),
+		"SELECT EXISTS(SELECT 1 FROM system_config WHERE key = 'setup_completed' AND value = 'true')",
+	).Scan(&completed)
+	if completed {
+		writeError(w, http.StatusConflict, "setup already completed — use reset scripts to recover")
 		return
 	}
+
+	var count int
+	_ = h.pool.QueryRow(r.Context(), "SELECT COUNT(*) FROM auth_users").Scan(&count)
 	if count > 0 {
 		writeError(w, http.StatusConflict, "admin account already exists")
 		return
@@ -119,6 +127,10 @@ func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create user: "+err.Error())
 		return
 	}
+
+	_, _ = h.pool.Exec(r.Context(),
+		"INSERT INTO system_config (key, value) VALUES ('setup_completed', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true'",
+	)
 
 	writeJSON(w, http.StatusCreated, map[string]string{"message": "admin account created"})
 }

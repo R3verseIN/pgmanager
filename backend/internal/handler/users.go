@@ -201,6 +201,17 @@ func (h *Handler) InitUserSchema(ctx context.Context) error {
 	_, _ = h.pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_log_username ON audit_log(username)`)
 	_, _ = h.pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)`)
 
+	_, err = h.pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS system_config (
+			key        TEXT PRIMARY KEY,
+			value      TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
