@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"pgmanager/internal/auth"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -119,6 +121,19 @@ func (h *Handler) ListBackupDatabases(w http.ResponseWriter, r *http.Request) {
 		databases = append(databases, db)
 	}
 
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "list_backup_databases",
+		IPAddress: clientIP(r),
+		Detail:    map[string]interface{}{"count": len(databases)},
+	})
+
 	writeJSON(w, http.StatusOK, databases)
 }
 
@@ -164,6 +179,20 @@ func (h *Handler) ListBackupTables(w http.ResponseWriter, r *http.Request) {
 		}
 		tables = append(tables, t)
 	}
+
+	authUser := auth.GetUserFromContext(r.Context())
+	username := ""
+	if authUser != nil {
+		username = authUser.Username
+	}
+
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "list_backup_tables",
+		Database:  dbName,
+		IPAddress: clientIP(r),
+		Detail:    map[string]interface{}{"count": len(tables)},
+	})
 
 	writeJSON(w, http.StatusOK, backupTableListResponse{
 		Database: dbName,
@@ -263,6 +292,20 @@ func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
 			errMsg = "backup failed: " + sanitizeRedact(stderrStr)
 		}
 
+		authUser := auth.GetUserFromContext(r.Context())
+		username := ""
+		if authUser != nil {
+			username = authUser.Username
+		}
+
+		h.writeAuditLog(r.Context(), auditEntry{
+			Username:  username,
+			Action:    "backup_database",
+			Database:  req.Database,
+			IPAddress: clientIP(r),
+			Detail:    map[string]interface{}{"error": errMsg},
+		})
+
 		writeError(w, http.StatusInternalServerError, errMsg)
 		return
 	}
@@ -277,6 +320,20 @@ func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
 	// Stream the completed temp file to the client
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := fmt.Sprintf("%s_%s.dump", req.Database, timestamp)
+
+	authUser := auth.GetUserFromContext(r.Context())
+	username := ""
+	if authUser != nil {
+		username = authUser.Username
+	}
+
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "backup_database",
+		Database:  req.Database,
+		IPAddress: clientIP(r),
+		Detail:    map[string]interface{}{"tables": req.Tables, "size": fileInfo.Size(), "filename": filename},
+	})
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
@@ -434,6 +491,20 @@ func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	authUser := auth.GetUserFromContext(r.Context())
+	username := ""
+	if authUser != nil {
+		username = authUser.Username
+	}
+
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "inspect_backup",
+		Database:  dbName,
+		IPAddress: clientIP(r),
+		Detail:    map[string]interface{}{"tables": tables, "size": header.Size},
+	})
+
 	writeJSON(w, http.StatusOK, backupInspectResponse{
 		Database: dbName,
 		Format:   "custom",
@@ -556,11 +627,37 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("pg_restore failed for %s: %v: %s", targetDB, err, stderrStr)
+		authUser := auth.GetUserFromContext(r.Context())
+		username := ""
+		if authUser != nil {
+			username = authUser.Username
+		}
+		h.writeAuditLog(r.Context(), auditEntry{
+			Username:  username,
+			Action:    "restore_backup",
+			Database:  targetDB,
+			IPAddress: clientIP(r),
+			Detail:    map[string]interface{}{"error": sanitizeRedact(stderrStr), "dropFirst": dropFirst},
+		})
 		writeError(w, http.StatusInternalServerError, "restore failed: "+sanitizeRedact(stderrStr))
 		return
 	}
 
 	log.Printf("restore completed: %s", targetDB)
+
+	authUser := auth.GetUserFromContext(r.Context())
+	username := ""
+	if authUser != nil {
+		username = authUser.Username
+	}
+
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "restore_backup",
+		Database:  targetDB,
+		IPAddress: clientIP(r),
+		Detail:    map[string]interface{}{"dropFirst": dropFirst},
+	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":  true,

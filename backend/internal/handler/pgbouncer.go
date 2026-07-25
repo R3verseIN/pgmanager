@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"pgmanager/internal/auth"
+
 	"github.com/jackc/pgx/v5"
 )
 
@@ -51,6 +53,19 @@ func (h *Handler) ListPgBouncerDatabases(w http.ResponseWriter, r *http.Request)
 		}
 		databases = append(databases, db)
 	}
+
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "list_pgbouncer_databases",
+		IPAddress: clientIP(r),
+		Detail:    map[string]interface{}{"count": len(databases)},
+	})
+
 	writeJSON(w, http.StatusOK, databases)
 }
 
@@ -86,6 +101,20 @@ func (h *Handler) TogglePgBouncerDatabase(w http.ResponseWriter, r *http.Request
 	}
 
 	h.RebuildPgBouncerHBA()
+
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "toggle_pgbouncer_database",
+		Database:  name,
+		IPAddress: clientIP(r),
+		Detail:    map[string]interface{}{"allowed": req.Allowed},
+	})
+
 	writeJSON(w, http.StatusOK, pgbouncerDatabase{DatabaseName: name, Allowed: req.Allowed})
 }
 
@@ -279,6 +308,18 @@ func (h *Handler) GetPgBouncerConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "get_pgbouncer_config",
+		IPAddress: clientIP(r),
+		Detail:    map[string]interface{}{"pool_mode": config.PoolMode, "default_pool_size": config.DefaultPoolSize, "max_client_conn": config.MaxClientConn},
+	})
+
 	writeJSON(w, http.StatusOK, config)
 }
 
@@ -319,6 +360,18 @@ func (h *Handler) UpdatePgBouncerConfig(w http.ResponseWriter, r *http.Request) 
 
 	h.rebuildPgBouncerSection(ctx)
 	h.reloadPgBouncer(ctx)
+
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+	h.writeAuditLog(r.Context(), auditEntry{
+		Username:  username,
+		Action:    "update_pgbouncer_config",
+		IPAddress: clientIP(r),
+		Detail:    map[string]interface{}{"pool_mode": req.PoolMode, "default_pool_size": req.DefaultPoolSize, "max_client_conn": req.MaxClientConn},
+	})
 
 	writeJSON(w, http.StatusOK, req)
 }
