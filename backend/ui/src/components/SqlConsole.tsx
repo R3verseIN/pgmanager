@@ -190,7 +190,7 @@ export default function SqlConsole({ dbName }: { dbName: string }) {
     <div className="space-y-4">
       <div className="space-y-2">
         <div
-          className="overflow-hidden rounded-[10px] border border-hairline bg-surface-1"
+          className="overflow-hidden rounded-md border border-hairline bg-surface-1"
           onKeyDown={handleKeyDown}
         >
           <CodeMirror
@@ -267,7 +267,7 @@ export default function SqlConsole({ dbName }: { dbName: string }) {
       </div>
 
       {showHistory && history.length > 0 && (
-        <div className="rounded-[10px] border border-hairline bg-surface-1 p-3">
+        <div className="rounded-md border border-hairline bg-surface-1 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-medium">Query History</span>
             <Button
@@ -305,13 +305,13 @@ export default function SqlConsole({ dbName }: { dbName: string }) {
       )}
 
       {result?.error && (
-        <div className="rounded-[10px] border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
           {result.error}
         </div>
       )}
 
       {result && !result.error && result.columns.length > 0 && (
-        <div className="overflow-x-auto rounded-[10px] border border-hairline bg-surface-1">
+        <div className="overflow-x-auto rounded-md border border-hairline bg-surface-1">
           <Table>
             <TableHeader>
               <TableRow>

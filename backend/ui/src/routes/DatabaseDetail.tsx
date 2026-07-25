@@ -234,7 +234,7 @@ export default function DatabaseDetail() {
                   onClick={() =>
                     navigate(`/databases/${name}/tables/${t.name}`)
                   }
-                  className="flex animate-in items-center justify-between rounded-[10px] border border-hairline bg-surface-1 p-4 text-left transition-all duration-200 fill-mode-both fade-in slide-in-from-bottom-2 hover:border-border hover:bg-surface-2"
+                  className="flex animate-in items-center justify-between rounded-md border border-hairline bg-surface-1 p-4 text-left transition-all duration-200 fill-mode-both fade-in slide-in-from-bottom-2 hover:border-border hover:bg-surface-2"
                   style={{ animationDelay: `${i * 30}ms` }}
                 >
                   <div className="flex items-center gap-3">
@@ -309,7 +309,7 @@ export default function DatabaseDetail() {
                     return (
                       <div
                         key={col.id}
-                        className="flex items-start gap-2 rounded-[10px] border border-hairline bg-surface-2/50 p-3"
+                        className="flex items-start gap-2 rounded-md border border-hairline bg-surface-2/50 p-3"
                       >
                         <GripVertical className="mt-2 size-4 shrink-0 text-ink-muted" />
                         <div className="flex-1 space-y-2">
