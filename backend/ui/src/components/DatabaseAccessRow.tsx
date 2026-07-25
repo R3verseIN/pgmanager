@@ -18,7 +18,7 @@ export function DatabaseAccessRow({
     <div className="flex items-center justify-between rounded-md px-3 py-2 hover:bg-surface-2">
       <div className="flex items-center gap-3">
         <Database className="size-4 text-ink-muted" />
-        <span className="text-sm text-foreground font-mono">{databaseName}</span>
+        <span className="font-mono text-sm text-foreground">{databaseName}</span>
       </div>
       <Switch
         checked={allowed}

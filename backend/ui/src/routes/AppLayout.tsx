@@ -11,6 +11,7 @@ import Users from "./Users";
 import Logs from "./Logs";
 import Profile from "./Profile";
 import Settings from "./Settings";
+import Backups from "./Backups";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -21,7 +22,9 @@ export default function AppLayout() {
         ? "logs"
         : location.pathname === "/settings"
           ? "settings"
-          : "databases";
+          : location.pathname === "/backups"
+            ? "backups"
+            : "databases";
   const { user } = useAuth();
 
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -74,6 +77,10 @@ export default function AppLayout() {
           <Route
             path="/settings"
             element={user?.role === "admin" ? <Settings /> : <Navigate to="/" />}
+          />
+          <Route
+            path="/backups"
+            element={user?.role === "admin" ? <Backups /> : <Navigate to="/" />}
           />
         </Routes>
       </main>

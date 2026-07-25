@@ -9,6 +9,7 @@ import {
   User,
   ScrollText,
   Shield,
+  DatabaseBackup,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import NavItem from "./NavItem";
@@ -83,6 +84,14 @@ export default function DesktopSidebar({
               icon={ScrollText}
               label="Logs"
               isActive={selectedKey === "logs"}
+              isCollapsed={isCollapsed}
+              className="mt-1"
+            />
+            <NavItem
+              to="/backups"
+              icon={DatabaseBackup}
+              label="Backups"
+              isActive={selectedKey === "backups"}
               isCollapsed={isCollapsed}
               className="mt-1"
             />

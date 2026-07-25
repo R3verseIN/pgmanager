@@ -47,3 +47,18 @@ export {
   updatePgBouncerConfig,
 } from "./pgbouncer";
 export type { PgBouncerDatabase, PgBouncerConfig } from "./pgbouncer";
+export {
+  fetchBackupDatabases,
+  fetchBackupTables,
+  backupDatabase,
+  inspectBackup,
+  restoreBackup,
+  downloadBlob,
+} from "./backup";
+export type {
+  BackupDatabase,
+  BackupTable,
+  BackupTableList,
+  BackupInspectResult,
+  BackupRestoreResult,
+} from "./backup";

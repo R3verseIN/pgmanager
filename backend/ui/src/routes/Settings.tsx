@@ -100,7 +100,7 @@ export default function Settings() {
 
       {/* Connection Pool */}
       <div className="rounded-lg border border-hairline bg-surface-1 p-4">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="mb-4 flex items-center gap-3">
           <Loader2 className="size-5 text-ink-muted" />
           <div>
             <h2 className="text-sm font-medium text-foreground">
@@ -126,7 +126,7 @@ export default function Settings() {
                   setLocalConfig({ ...localConfig, poolMode: value })
                 }
               >
-                <SelectTrigger className="w-full bg-surface-2 border-hairline">
+                <SelectTrigger className="w-full border-hairline bg-surface-2">
                   <span>{localConfig.poolMode}</span>
                 </SelectTrigger>
                 <SelectContent>
@@ -158,7 +158,7 @@ export default function Settings() {
                       defaultPoolSize: parseInt(e.target.value) || 20,
                     })
                   }
-                  className="bg-surface-2 border-hairline"
+                  className="border-hairline bg-surface-2"
                 />
                 <p className="text-xs text-ink-muted">
                   Max server connections per user/database pair
@@ -178,7 +178,7 @@ export default function Settings() {
                       maxClientConn: parseInt(e.target.value) || 100,
                     })
                   }
-                  className="bg-surface-2 border-hairline"
+                  className="border-hairline bg-surface-2"
                 />
                 <p className="text-xs text-ink-muted">
                   Total max connections PgBouncer accepts from clients
@@ -193,9 +193,9 @@ export default function Settings() {
                 size="sm"
               >
                 {configMutation.isPending ? (
-                  <Loader2 className="size-4 animate-spin mr-1" />
+                  <Loader2 className="mr-1 size-4 animate-spin" />
                 ) : (
-                  <Save className="size-4 mr-1" />
+                  <Save className="mr-1 size-4" />
                 )}
                 Save
               </Button>
@@ -206,7 +206,7 @@ export default function Settings() {
 
       {/* Database Access */}
       <div className="rounded-lg border border-hairline bg-surface-1 p-4">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="mb-4 flex items-center gap-3">
           <Shield className="size-5 text-ink-muted" />
           <div>
             <h2 className="text-sm font-medium text-foreground">
@@ -224,7 +224,7 @@ export default function Settings() {
             <Loader2 className="size-5 animate-spin text-ink-muted" />
           </div>
         ) : !databases || databases.length === 0 ? (
-          <p className="text-sm text-ink-muted py-4">No databases found</p>
+          <p className="py-4 text-sm text-ink-muted">No databases found</p>
         ) : (
           <div className="space-y-1">
             {databases.map((db: PgBouncerDatabase) => (

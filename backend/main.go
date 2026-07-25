@@ -236,6 +236,28 @@ func main() {
 			return
 		}
 
+		// Backup routes (admin only)
+		if method == "GET" && path == "/api/backup/databases" {
+			h.ListBackupDatabases(w, r)
+			return
+		}
+		if method == "GET" && path == "/api/backup/tables" {
+			h.ListBackupTables(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/backup/create" {
+			h.StreamBackup(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/backup/inspect" {
+			h.InspectDump(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/backup/restore" {
+			h.RestoreBackup(w, r)
+			return
+		}
+
 		http.NotFound(w, r)
 	})))
 
