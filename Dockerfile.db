@@ -1,3 +1,9 @@
 FROM postgres:17-alpine
-COPY init/ /docker-entrypoint-initdb.d/
+RUN apk add --no-cache python3 py3-pip && \
+    pip3 install --break-system-packages --no-cache-dir psycopg2-binary
+COPY --chmod=755 scripts/pgmanager-init.py /usr/local/bin/pgmanager-init.py
+COPY --chmod=755 scripts/pg-entrypoint.sh /usr/local/bin/pg-entrypoint.sh
+COPY --chmod=755 init/ /docker-entrypoint-initdb.d/
 COPY scripts/ /scripts/
+ENTRYPOINT ["/usr/local/bin/pg-entrypoint.sh"]
+CMD ["postgres"]

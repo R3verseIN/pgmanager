@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 
+PASSWORD_FILE="/var/lib/postgresql/data/pgmanager-password"
+export PGPASSWORD=$(cat "$PASSWORD_FILE")
+
 echo "========================================="
 echo "  pgmanager - Reset Auth User Password"
 echo "========================================="

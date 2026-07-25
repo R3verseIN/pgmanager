@@ -5,3 +5,5 @@ dist/
 .env
 target/
 backend/pgmanager
+__pycache__/
+*.pyc

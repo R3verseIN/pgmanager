@@ -6,14 +6,16 @@ services:
     environment:
       POSTGRES_USER: pgmanager
       POSTGRES_DB: pgmanager
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PGBOUNCER_AUTH_PASSWORD: ${PGBOUNCER_AUTH_PASSWORD:?PGBOUNCER_AUTH_PASSWORD is required}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD", "pg_isready", "-U", "pgmanager", "-d", "pgmanager" ]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U pgmanager -d pgmanager"]
+      interval: 2s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 15s
 
   app:
     build: .
@@ -26,6 +28,7 @@ services:
       PGUSER: pgmanager
       PGDATABASE: pgmanager
       PGSSLMODE: disable
+      PGBOUNCER_AUTH_PASSWORD: /var/lib/postgresql/data/pgbouncer-auth-password
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
       - pgbouncer_shared:/etc/pgbouncer/shared
@@ -39,8 +42,6 @@ services:
       dockerfile: Dockerfile.pgbouncer
     ports:
       - "5432:6432"
-    environment:
-      DATABASE_URL: postgres://pgmanager:__PASSWORD__@db:5432/pgmanager?sslmode=disable
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
       - pgbouncer_shared:/etc/pgbouncer/shared

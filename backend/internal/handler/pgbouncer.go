@@ -14,10 +14,18 @@ import (
 
 var hbaFilePath = "/etc/pgbouncer/shared/pg_hba.conf"
 
+func readPasswordFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("failed to read password file %s: %v", path, err)
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 func (h *Handler) RebuildPgBouncerHBA() {
 	ctx := context.Background()
 
-	// 1. Fetch all managed users and their allowed IPs from pgmanager database
 	rows, err := h.pool.Query(ctx, `
 		SELECT DISTINCT ON (username) username, allowed_ips
 		FROM managed_users
@@ -30,15 +38,13 @@ func (h *Handler) RebuildPgBouncerHBA() {
 	defer rows.Close()
 
 	var lines []string
-	
-	// Standard rules for internal docker communication
+
 	lines = append(lines, "host all pgbouncer_auth 127.0.0.1/32 trust")
 	lines = append(lines, "host all pgbouncer_auth ::1/128 trust")
-	lines = append(lines, "host all pgbouncer_auth 172.16.0.0/12 trust") // Docker bridge networks
-	lines = append(lines, "host all pgbouncer_auth 192.168.0.0/16 trust") 
-	lines = append(lines, "host all pgbouncer_auth 10.0.0.0/8 trust") 
-	
-	// Ensure the backend go app can connect
+	lines = append(lines, "host all pgbouncer_auth 172.16.0.0/12 trust")
+	lines = append(lines, "host all pgbouncer_auth 192.168.0.0/16 trust")
+	lines = append(lines, "host all pgbouncer_auth 10.0.0.0/8 trust")
+
 	lines = append(lines, "host all pgmanager 172.16.0.0/12 trust")
 	lines = append(lines, "host all pgmanager 192.168.0.0/16 trust")
 	lines = append(lines, "host all pgmanager 10.0.0.0/8 trust")
@@ -57,18 +63,15 @@ func (h *Handler) RebuildPgBouncerHBA() {
 		}
 
 		if len(allowedIps) == 0 {
-			// If none, fallback to deny all for this user
 			lines = append(lines, fmt.Sprintf("host all \"%s\" 0.0.0.0/0 reject", username))
 			continue
 		}
 
 		for _, ip := range allowedIps {
-			// Add a rule for each allowed IP
 			ip = strings.TrimSpace(ip)
 			if ip == "" {
 				continue
 			}
-			// ensure CIDR suffix
 			if !strings.Contains(ip, "/") {
 				ip = ip + "/32"
 			}
@@ -76,16 +79,13 @@ func (h *Handler) RebuildPgBouncerHBA() {
 		}
 	}
 
-	// Default fall-through is reject everything else
 	lines = append(lines, "host all all 0.0.0.0/0 reject")
 	lines = append(lines, "host all all ::0/0 reject")
 
 	content := strings.Join(lines, "\n") + "\n"
 
-	// 2. Write to the shared volume file
-	// Ensure directory exists
 	os.MkdirAll("/etc/pgbouncer/shared", 0755)
-	
+
 	err = os.WriteFile(hbaFilePath, []byte(content), 0644)
 	if err != nil {
 		log.Printf("Failed to write %s: %v", hbaFilePath, err)
@@ -94,13 +94,22 @@ func (h *Handler) RebuildPgBouncerHBA() {
 
 	log.Println("PgBouncer HBA file regenerated successfully")
 
-	// 3. Issue RELOAD to PgBouncer
-	pgbouncerAdminDB := os.Getenv("PGBOUNCER_ADMIN_URL")
-	if pgbouncerAdminDB == "" {
-		pgbouncerAdminDB = "postgres://pgbouncer_auth:pgbouncer_auth_password@pgbouncer:6432/pgbouncer?sslmode=disable"
+	authPasswordPath := os.Getenv("PGBOUNCER_AUTH_PASSWORD")
+	if authPasswordPath == "" {
+		log.Printf("PGBOUNCER_AUTH_PASSWORD not set, cannot RELOAD PgBouncer")
+		return
 	}
-	
-	// 3. Issue RELOAD to PgBouncer (with short timeout so local/test envs fail fast)
+	authPassword := readPasswordFile(authPasswordPath)
+	if authPassword == "" {
+		log.Printf("pgbouncer_auth password file empty, cannot RELOAD PgBouncer")
+		return
+	}
+
+	pgbouncerAdminDB := fmt.Sprintf(
+		"postgres://pgbouncer_auth:%s@pgbouncer:6432/pgbouncer?sslmode=disable",
+		authPassword,
+	)
+
 	reloadCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -116,6 +125,6 @@ func (h *Handler) RebuildPgBouncerHBA() {
 		log.Printf("Failed to issue RELOAD to PgBouncer: %v", err)
 		return
 	}
-	
+
 	log.Println("PgBouncer successfully reloaded HBA rules")
 }

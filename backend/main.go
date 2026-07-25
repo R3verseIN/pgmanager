@@ -28,15 +28,29 @@ func main() {
 
 	databaseURL := buildDatabaseURL()
 
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		log.Fatalf("failed to connect: %v", err)
+	var pool *pgxpool.Pool
+	var lastErr error
+	for attempt := 1; attempt <= 30; attempt++ {
+		pool, lastErr = pgxpool.New(ctx, databaseURL)
+		if lastErr != nil {
+			log.Printf("attempt %d/30: failed to connect: %v", attempt, lastErr)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		if pingErr := pool.Ping(ctx); pingErr != nil {
+			pool.Close()
+			lastErr = pingErr
+			log.Printf("attempt %d/30: failed to ping: %v", attempt, pingErr)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		log.Fatalf("failed to connect after 30 attempts: %v", lastErr)
 	}
 	defer pool.Close()
-
-	if err := pool.Ping(ctx); err != nil {
-		log.Fatalf("failed to ping: %v", err)
-	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -50,20 +64,13 @@ func main() {
 		log.Printf("warning: failed to init user schema: %v", err)
 	}
 
-	if err := auth.EnsurePgbouncerAuth(ctx, pool); err != nil {
-		log.Printf("warning: failed to ensure pgbouncer auth: %v", err)
-	}
-
-	// Generate HBA file on startup
+	// Generate PgBouncer HBA file on startup
 	h.RebuildPgBouncerHBA()
 
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			if err := auth.EnsurePgbouncerAuth(context.Background(), pool); err != nil {
-				log.Printf("warning: pgbouncer auth healthcheck failed: %v", err)
-			}
 			h.RebuildPgBouncerHBA()
 		}
 	}()

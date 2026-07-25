@@ -1,4 +1,7 @@
 FROM edoburu/pgbouncer
 COPY pgbouncer.ini /etc/pgbouncer/pgbouncer.ini
+COPY --chmod=755 scripts/pgbouncer-entrypoint.sh /usr/local/bin/pgbouncer-entrypoint.sh
 RUN mkdir -p /etc/pgbouncer/shared && \
-    printf "host all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n" > /etc/pgbouncer/shared/pg_hba.conf
+    printf '# Initial rules for internal Docker communication\n# Go app will overwrite with full per-user rules on startup\nhost all pgbouncer_auth 172.16.0.0/12 trust\nhost all pgbouncer_auth 192.168.0.0/16 trust\nhost all pgbouncer_auth 10.0.0.0/8 trust\nhost all pgmanager 172.16.0.0/12 trust\nhost all pgmanager 192.168.0.0/16 trust\nhost all pgmanager 10.0.0.0/8 trust\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n' > /etc/pgbouncer/shared/pg_hba.conf
+ENTRYPOINT ["/usr/local/bin/pgbouncer-entrypoint.sh"]
+CMD ["pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
