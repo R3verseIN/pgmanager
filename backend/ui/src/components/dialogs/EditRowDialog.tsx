@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { fetchColumns, updateRow } from "../../api/client";
 import { parseValue } from "../../lib/parseValue";
 import type { ColumnInfo, WhereCondition } from "../../lib/schemas";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Badge } from "../ui/badge";
 import {
@@ -16,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import { TypeAwareInput } from "../TypeAwareInput";
 
 export default function EditRowDialog({
   dbName,
@@ -39,16 +39,15 @@ export default function EditRowDialog({
 
   const [values, setValues] = useState<Record<string, string>>({});
 
-  const initializedKey = row ? JSON.stringify(row) : "";
-  const [lastKey, setLastKey] = useState("");
-  if (initializedKey !== lastKey && row && columns) {
-    const newValues: Record<string, string> = {};
-    columns.forEach((col: ColumnInfo, i: number) => {
-      newValues[col.name] = row[i] === null ? "" : String(row[i]);
-    });
-    setValues(newValues);
-    setLastKey(initializedKey);
-  }
+  useEffect(() => {
+    if (open && row && columns) {
+      const newValues: Record<string, string> = {};
+      columns.forEach((col: ColumnInfo, i: number) => {
+        newValues[col.name] = row[i] === null ? "" : String(row[i]);
+      });
+      setValues(newValues);
+    }
+  }, [open, row, columns]);
 
   const updateMutation = useMutation({
     mutationFn: () => {
@@ -58,11 +57,14 @@ export default function EditRowDialog({
         const raw = values[col.name] ?? "";
         parsed[col.name] = raw === "" ? null : parseValue(raw, col.type);
       }
-      const where: WhereCondition[] = columns.map((col: ColumnInfo, i: number) => {
-        const val = row[i];
-        if (val === null) return { column: col.name, operator: "IS NULL" as const };
-        return { column: col.name, operator: "=" as const, value: val };
-      });
+      const where: WhereCondition[] = columns.map(
+        (col: ColumnInfo, i: number) => {
+          const val = row[i];
+          if (val === null)
+            return { column: col.name, operator: "IS NULL" as const };
+          return { column: col.name, operator: "=" as const, value: val };
+        }
+      );
       return updateRow(dbName, table, parsed, where);
     },
     onSuccess: () => {
@@ -86,21 +88,22 @@ export default function EditRowDialog({
         <div className="space-y-3 py-4">
           {columns?.map((col: ColumnInfo) => (
             <div key={col.name} className="space-y-1">
-              <Label>
+              <Label className="flex items-center gap-1.5">
                 {col.name}
-                <span className="ml-1 text-xs text-ink-muted">
-                  ({col.type})
-                </span>
+                <Badge variant="outline" className="text-xs font-normal">
+                  {col.type}
+                </Badge>
                 {col.isPrimaryKey && (
-                  <Badge variant="default" className="ml-1 text-xs">
+                  <Badge variant="default" className="text-xs">
                     PK
                   </Badge>
                 )}
               </Label>
-              <Input
+              <TypeAwareInput
+                column={col}
                 value={values[col.name] ?? ""}
-                onChange={(e) =>
-                  setValues({ ...values, [col.name]: e.target.value })
+                onChange={(val) =>
+                  setValues({ ...values, [col.name]: val })
                 }
               />
             </div>

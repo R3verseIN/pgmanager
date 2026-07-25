@@ -5,8 +5,8 @@ import { fetchColumns, insertRow } from "../../api/client";
 import { parseValue } from "../../lib/parseValue";
 import type { ColumnInfo } from "../../lib/schemas";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Badge } from "../ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import { TypeAwareInput } from "../TypeAwareInput";
 
 export default function InsertRowDialog({
   dbName,
@@ -70,22 +71,20 @@ export default function InsertRowDialog({
             ?.filter((c: ColumnInfo) => !c.type.includes("SERIAL"))
             .map((col: ColumnInfo) => (
               <div key={col.name} className="space-y-1">
-                <Label>
+                <Label className="flex items-center gap-1.5">
                   {col.name}
-                  <span className="ml-1 text-xs text-ink-muted">
-                    ({col.type})
-                  </span>
+                  <Badge variant="outline" className="text-xs font-normal">
+                    {col.type}
+                  </Badge>
                   {col.nullable && (
-                    <span className="ml-1 text-xs text-ink-muted">
-                      nullable
-                    </span>
+                    <span className="text-xs text-ink-muted">nullable</span>
                   )}
                 </Label>
-                <Input
-                  placeholder={col.default ?? ""}
+                <TypeAwareInput
+                  column={col}
                   value={values[col.name] ?? ""}
-                  onChange={(e) =>
-                    setValues({ ...values, [col.name]: e.target.value })
+                  onChange={(val) =>
+                    setValues({ ...values, [col.name]: val })
                   }
                 />
               </div>

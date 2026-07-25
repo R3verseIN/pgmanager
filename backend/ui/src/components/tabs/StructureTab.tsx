@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Pencil } from "lucide-react";
 import { fetchColumns, dropColumn } from "../../api/client";
 import type { ColumnInfo } from "../../lib/schemas";
 import { Button } from "../ui/button";
@@ -13,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
+import EditColumnDialog from "../dialogs/EditColumnDialog";
 
 export default function StructureTab({
   dbName,
@@ -26,6 +28,7 @@ export default function StructureTab({
   onAddColumn: () => void;
 }) {
   const queryClient = useQueryClient();
+  const [editColumn, setEditColumn] = useState<ColumnInfo | null>(null);
 
   const { data: columns, isLoading } = useQuery({
     queryKey: ["columns", dbName, table],
@@ -66,7 +69,7 @@ export default function StructureTab({
                 <TableHead>Nullable</TableHead>
                 <TableHead>Default</TableHead>
                 <TableHead>PK</TableHead>
-                {canWrite && <TableHead className="w-12"></TableHead>}
+                {canWrite && <TableHead className="w-20"></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -91,19 +94,29 @@ export default function StructureTab({
                   </TableCell>
                   {canWrite && (
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-destructive hover:bg-destructive/10"
-                        disabled={col.isPrimaryKey}
-                        onClick={() => {
-                          if (confirm(`Drop column "${col.name}"?`)) {
-                            dropColMutation.mutate(col.name);
-                          }
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          onClick={() => setEditColumn(col)}
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-destructive hover:bg-destructive/10"
+                          disabled={col.isPrimaryKey}
+                          onClick={() => {
+                            if (confirm(`Drop column "${col.name}"?`)) {
+                              dropColMutation.mutate(col.name);
+                            }
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>
@@ -112,6 +125,16 @@ export default function StructureTab({
           </Table>
         </div>
       )}
+
+      <EditColumnDialog
+        dbName={dbName}
+        table={table}
+        column={editColumn}
+        open={editColumn !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditColumn(null);
+        }}
+      />
     </div>
   );
 }

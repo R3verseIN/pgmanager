@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { addColumn } from "../../api/client";
-import type { ColumnDef } from "../../lib/schemas";
-import { POSTGRESQL_TYPES, buildTypeString } from "../../lib/pg-types";
+import { executeQuery } from "../../api/client";
+import type { ColumnInfo } from "../../lib/schemas";
+import { POSTGRESQL_TYPES, buildTypeString, parseTypeParams } from "../../lib/pg-types";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -22,56 +22,96 @@ import {
   SelectValue,
 } from "../ui/select";
 
-export default function AddColumnDialog({
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+export default function EditColumnDialog({
   dbName,
   table,
+  column,
   open,
   onOpenChange,
 }: {
   dbName: string;
   table: string;
+  column: ColumnInfo | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const queryClient = useQueryClient();
-  const [colName, setColName] = useState("");
-  const [colType, setColType] = useState("TEXT");
-  const [colNullable, setColNullable] = useState(true);
-  const [colDefault, setColDefault] = useState("");
-  const [colLength, setColLength] = useState("");
-  const [colPrecision, setColPrecision] = useState("");
-  const [colScale, setColScale] = useState("");
+  const parsed = column ? parseTypeParams(column.type) : { base: "TEXT" };
 
-  const typeDef = POSTGRESQL_TYPES.find((t) => t.value === colType);
+  const [newName, setNewName] = useState(column?.name ?? "");
+  const [newType, setNewType] = useState(parsed.base);
+  const [newLength, setNewLength] = useState(
+    parsed.length !== undefined ? String(parsed.length) : ""
+  );
+  const [newPrecision, setNewPrecision] = useState(
+    parsed.precision !== undefined ? String(parsed.precision) : ""
+  );
+  const [newScale, setNewScale] = useState(
+    parsed.scale !== undefined ? String(parsed.scale) : ""
+  );
+  const [newNullable, setNewNullable] = useState(column?.nullable ?? true);
+  const [newDefault, setNewDefault] = useState(column?.default ?? "");
+
+  const typeDef = POSTGRESQL_TYPES.find((t) => t.value === newType);
   const hasLength = typeDef != null && "hasLength" in typeDef && typeDef.hasLength === true;
   const hasPrecision = typeDef != null && "hasPrecision" in typeDef && typeDef.hasPrecision === true;
 
-  const addColMutation = useMutation({
-    mutationFn: () => {
-      const typeStr = buildTypeString(colType, {
-        length: colLength ? parseInt(colLength, 10) : undefined,
-        precision: colPrecision ? parseInt(colPrecision, 10) : undefined,
-        scale: colScale ? parseInt(colScale, 10) : undefined,
+  const editMutation = useMutation({
+    mutationFn: async () => {
+      if (!column) return;
+      const stmts: string[] = [];
+
+      if (newName !== column.name) {
+        stmts.push(
+          `ALTER TABLE ${quoteIdent(table)} RENAME COLUMN ${quoteIdent(column.name)} TO ${quoteIdent(newName)}`
+        );
+      }
+
+      const typeStr = buildTypeString(newType, {
+        length: newLength ? parseInt(newLength, 10) : undefined,
+        precision: newPrecision ? parseInt(newPrecision, 10) : undefined,
+        scale: newScale ? parseInt(newScale, 10) : undefined,
       });
-      const col: ColumnDef = {
-        name: colName,
-        type: typeStr,
-        nullable: colNullable,
-        isPrimaryKey: false,
-      };
-      if (colDefault) col.default = colDefault;
-      return addColumn(dbName, table, col);
+      if (typeStr !== column.type) {
+        stmts.push(
+          `ALTER TABLE ${quoteIdent(table)} ALTER COLUMN ${quoteIdent(newName)} TYPE ${typeStr}`
+        );
+      }
+
+      if (newNullable && !column.nullable) {
+        stmts.push(
+          `ALTER TABLE ${quoteIdent(table)} ALTER COLUMN ${quoteIdent(newName)} DROP NOT NULL`
+        );
+      } else if (!newNullable && column.nullable) {
+        stmts.push(
+          `ALTER TABLE ${quoteIdent(table)} ALTER COLUMN ${quoteIdent(newName)} SET NOT NULL`
+        );
+      }
+
+      if (newDefault !== (column.default ?? "")) {
+        if (newDefault) {
+          stmts.push(
+            `ALTER TABLE ${quoteIdent(table)} ALTER COLUMN ${quoteIdent(newName)} SET DEFAULT ${newDefault}`
+          );
+        } else {
+          stmts.push(
+            `ALTER TABLE ${quoteIdent(table)} ALTER COLUMN ${quoteIdent(newName)} DROP DEFAULT`
+          );
+        }
+      }
+
+      for (const stmt of stmts) {
+        const result = await executeQuery(dbName, stmt);
+        if (result.error) throw new Error(result.error);
+      }
     },
     onSuccess: () => {
-      toast.success("Column added");
+      toast.success("Column updated");
       onOpenChange(false);
-      setColName("");
-      setColType("TEXT");
-      setColNullable(true);
-      setColDefault("");
-      setColLength("");
-      setColPrecision("");
-      setColScale("");
       queryClient.invalidateQueries({ queryKey: ["columns", dbName, table] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -81,20 +121,20 @@ export default function AddColumnDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Column to {table}</DialogTitle>
+          <DialogTitle>Edit Column {column?.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
             <Label>Name</Label>
             <Input
-              value={colName}
-              onChange={(e) => setColName(e.target.value)}
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
               autoFocus
             />
           </div>
           <div className="space-y-2">
             <Label>Type</Label>
-            <Select value={colType} onValueChange={setColType}>
+            <Select value={newType} onValueChange={setNewType}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -127,8 +167,8 @@ export default function AddColumnDialog({
               <Label>Length</Label>
               <Input
                 placeholder="e.g. 255"
-                value={colLength}
-                onChange={(e) => setColLength(e.target.value)}
+                value={newLength}
+                onChange={(e) => setNewLength(e.target.value)}
                 type="number"
                 min="1"
               />
@@ -140,8 +180,8 @@ export default function AddColumnDialog({
                 <Label>Precision</Label>
                 <Input
                   placeholder="e.g. 10"
-                  value={colPrecision}
-                  onChange={(e) => setColPrecision(e.target.value)}
+                  value={newPrecision}
+                  onChange={(e) => setNewPrecision(e.target.value)}
                   type="number"
                   min="1"
                 />
@@ -150,8 +190,8 @@ export default function AddColumnDialog({
                 <Label>Scale</Label>
                 <Input
                   placeholder="e.g. 2"
-                  value={colScale}
-                  onChange={(e) => setColScale(e.target.value)}
+                  value={newScale}
+                  onChange={(e) => setNewScale(e.target.value)}
                   type="number"
                   min="0"
                 />
@@ -162,19 +202,19 @@ export default function AddColumnDialog({
             <Label>Default</Label>
             <Input
               placeholder="NULL"
-              value={colDefault}
-              onChange={(e) => setColDefault(e.target.value)}
+              value={newDefault}
+              onChange={(e) => setNewDefault(e.target.value)}
             />
           </div>
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
-              id="nullable"
-              checked={colNullable}
-              onChange={(e) => setColNullable(e.target.checked)}
+              id="edit-nullable"
+              checked={newNullable}
+              onChange={(e) => setNewNullable(e.target.checked)}
               className="size-4 rounded border-hairline"
             />
-            <Label htmlFor="nullable">Nullable</Label>
+            <Label htmlFor="edit-nullable">Nullable</Label>
           </div>
         </div>
         <DialogFooter>
@@ -182,10 +222,10 @@ export default function AddColumnDialog({
             Cancel
           </Button>
           <Button
-            disabled={!colName || addColMutation.isPending}
-            onClick={() => addColMutation.mutate()}
+            disabled={!newName || editMutation.isPending}
+            onClick={() => editMutation.mutate()}
           >
-            Add Column
+            Save Changes
           </Button>
         </DialogFooter>
       </DialogContent>
