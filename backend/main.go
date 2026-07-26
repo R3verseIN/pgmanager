@@ -335,10 +335,6 @@ func main() {
 			ssh.TogglePgBouncerSSL(w, r)
 			return
 		}
-		if method == "POST" && path == "/api/ssl/pgbouncer/apply" {
-			ssh.ApplyPgBouncerSSL(w, r)
-			return
-		}
 
 		// Restore is admin-only (must be after admin check below)
 		if method == "POST" && path == "/api/backup/restore" {

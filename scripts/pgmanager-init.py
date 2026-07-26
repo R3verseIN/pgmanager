@@ -4,6 +4,7 @@ pgmanager-init: PostgreSQL-level self-healing script.
 
 Runs on every startup (after PostgreSQL is ready).
 Validates env vars, ensures users/functions/password files exist.
+Configures SSL based on preference file and certificate presence.
 """
 
 import os
@@ -15,6 +16,8 @@ from pathlib import Path
 DATA_DIR = Path("/var/lib/postgresql/data")
 PASSWORD_FILE = DATA_DIR / "pgmanager-password"
 AUTH_PASSWORD_FILE = DATA_DIR / "pgbouncer-auth-password"
+SSL_PREF_FILE = DATA_DIR / "pgmanager-ssl-enabled"
+PGBOUNCER_SSL_PREF_FILE = DATA_DIR / "pgmanager-pgbouncer-ssl"
 
 
 def fatal(msg: str) -> None:
@@ -131,35 +134,27 @@ GRANT EXECUTE ON FUNCTION public.pgbouncer_get_user(TEXT) TO pgbouncer_auth;
 
 
 def ensure_hba_rules() -> None:
-    """Replace the default PG17 catch-all scram-sha-256 line with per-user rules.
-
-    PostgreSQL 17's default pg_hba.conf includes:
-        host all all all scram-sha-256
-
-    This allows ANY user from ANY IP to connect with a password. We replace it
-    with scoped rules that only allow:
-      - pgmanager (superuser) — scram-sha-256 from Docker networks
-      - pgbouncer_auth — trust from Docker networks (PgBouncer auth-query pattern)
-      - Everything else — rejected
-
-    The marker comment "# pgmanager-init: managed" is checked on subsequent
-    runs to avoid re-replacing already-applied rules. On first start, the
-    regex matches the default catch-all line and substitutes our rules.
-
-    This file is for PostgreSQL's pg_hba.conf. PgBouncer's rules are managed
-    separately by RebuildPgBouncerHBA() in the Go app.
-    """
+    """Replace the default PG17 catch-all scram-sha-256 line with per-user rules."""
     print("pgmanager-init: ensuring HBA rules...")
     hba_file = DATA_DIR / "pg_hba.conf"
     content = hba_file.read_text()
 
-    # Use marker to detect if rules have already been applied
     if "# pgmanager-init: managed" in content:
         print("pgmanager-init: HBA rules already configured")
         return
 
-    # Replace the default catch-all scram-sha-256 line with per-user rules
     if "scram-sha-256" in content:
+        # Determine external rule based on SSL preference
+        ssl_pref_path = DATA_DIR / "pgmanager-ssl-enabled"
+        ssl_enabled = "on"
+        if ssl_pref_path.exists():
+            ssl_enabled = ssl_pref_path.read_text().strip()
+
+        if ssl_enabled == "off":
+            external_rule = "host all all 0.0.0.0/0 scram-sha-256\nhost all all ::0/0 scram-sha-256"
+        else:
+            external_rule = "hostssl all all 0.0.0.0/0 scram-sha-256\nhostssl all all ::0/0 scram-sha-256"
+
         new_rules = (
             "# pgmanager-init: managed (scram-sha-256 auth)\n"
             "host all pgmanager 172.16.0.0/12 scram-sha-256\n"
@@ -173,9 +168,8 @@ def ensure_hba_rules() -> None:
             "host all pgbouncer_auth 172.16.0.0/12 trust\n"
             "host all pgbouncer_auth 192.168.0.0/16 trust\n"
             "host all pgbouncer_auth 10.0.0.0/8 trust\n"
-            "# External connections (SSL required)\n"
-            "hostssl all all 0.0.0.0/0 scram-sha-256\n"
-            "hostssl all all ::0/0 scram-sha-256\n"
+            "# External connections\n"
+            f"{external_rule}\n"
         )
         content = re.sub(
             r'host\s+all\s+all\s+all\s+scram-sha-256',
@@ -186,6 +180,47 @@ def ensure_hba_rules() -> None:
         print("pgmanager-init: HBA rules updated")
     else:
         print("pgmanager-init: no scram-sha-256 catch-all found, rules may need manual setup")
+
+
+def update_hba_rules_for_ssl(require_ssl: bool) -> None:
+    """Update external connection HBA rules based on SSL preference."""
+    hba_file = DATA_DIR / "pg_hba.conf"
+    if not hba_file.exists():
+        return
+
+    content = hba_file.read_text()
+
+    if require_ssl:
+        # Replace host with hostssl for external connections
+        content = re.sub(
+            r'^host\s+all\s+all\s+0\.0\.0\.0/0\s+',
+            'hostssl all all 0.0.0.0/0 ',
+            content,
+            flags=re.MULTILINE,
+        )
+        content = re.sub(
+            r'^host\s+all\s+all\s+::0/0\s+',
+            'hostssl all all ::0/0 ',
+            content,
+            flags=re.MULTILINE,
+        )
+    else:
+        # Replace hostssl with host for external connections
+        content = re.sub(
+            r'^hostssl\s+all\s+all\s+0\.0\.0\.0/0\s+',
+            'host all all 0.0.0.0/0 ',
+            content,
+            flags=re.MULTILINE,
+        )
+        content = re.sub(
+            r'^hostssl\s+all\s+all\s+::0/0\s+',
+            'host all all ::0/0 ',
+            content,
+            flags=re.MULTILINE,
+        )
+
+    hba_file.write_text(content)
+    print(f"pgmanager-init: HBA rules updated (require_ssl={require_ssl})")
 
 
 def revoke_system_db_connect() -> None:
@@ -216,23 +251,104 @@ def configure_wal_archiving() -> None:
     print(f"pgmanager-init: WAL archiving configured (timeout={archive_timeout}s)")
 
 
+def generate_self_signed_certs() -> None:
+    """Generate self-signed CA and server certificates using openssl."""
+    print("pgmanager-init: generating self-signed SSL certificates...")
+
+    cert_path = DATA_DIR / "server.crt"
+    key_path = DATA_DIR / "server.key"
+    ca_cert_path = DATA_DIR / "root.crt"
+    ca_key_path = DATA_DIR / "root.key"
+
+    # Generate CA key
+    subprocess.run(
+        ["openssl", "ecparam", "-genkey", "-name", "prime256v1",
+         "-out", str(ca_key_path)],
+        check=True, capture_output=True,
+    )
+    ca_key_path.chmod(0o600)
+
+    # Generate CA cert (valid 10 years)
+    subprocess.run(
+        ["openssl", "req", "-new", "-x509",
+         "-key", str(ca_key_path),
+         "-out", str(ca_cert_path),
+         "-days", "3650",
+         "-subj", "/CN=pgmanager-ca/O=pgmanager"],
+        check=True, capture_output=True,
+    )
+
+    # Generate server key
+    subprocess.run(
+        ["openssl", "ecparam", "-genkey", "-name", "prime256v1",
+         "-out", str(key_path)],
+        check=True, capture_output=True,
+    )
+    key_path.chmod(0o600)
+
+    # Generate server CSR
+    csr_path = DATA_DIR / "server.csr"
+    subprocess.run(
+        ["openssl", "req", "-new",
+         "-key", str(key_path),
+         "-out", str(csr_path),
+         "-subj", "/CN=pgmanager-server/O=pgmanager"],
+        check=True, capture_output=True,
+    )
+
+    # Sign server cert with CA (valid 5 years)
+    subprocess.run(
+        ["openssl", "x509", "-req",
+         "-in", str(csr_path),
+         "-CA", str(ca_cert_path),
+         "-CAkey", str(ca_key_path),
+         "-CAcreateserial",
+         "-out", str(cert_path),
+         "-days", "1825"],
+        check=True, capture_output=True,
+    )
+
+    # Clean up CSR and serial
+    csr_path.unlink(missing_ok=True)
+    (DATA_DIR / "root.srl").unlink(missing_ok=True)
+
+    print("pgmanager-init: self-signed SSL certificates generated")
+
+
 def configure_ssl() -> None:
-    """Detect SSL certificates and configure PostgreSQL accordingly."""
-    print("pgmanager-init: checking SSL certificates...")
+    """Configure SSL based on preference file and certificate presence."""
+    print("pgmanager-init: configuring SSL...")
+
     cert_path = DATA_DIR / "server.crt"
     key_path = DATA_DIR / "server.key"
     ca_path = DATA_DIR / "root.crt"
 
-    if cert_path.exists() and key_path.exists():
-        print("pgmanager-init: SSL certificates found, enabling SSL...")
-        run_sql("ALTER SYSTEM SET ssl = 'on';")
-        run_sql(f"ALTER SYSTEM SET ssl_cert_file = '{cert_path}';")
-        run_sql(f"ALTER SYSTEM SET ssl_key_file = '{key_path}';")
-        if ca_path.exists():
-            run_sql(f"ALTER SYSTEM SET ssl_ca_file = '{ca_path}';")
-        print("pgmanager-init: SSL enabled")
-    else:
-        print("pgmanager-init: no SSL certificates found, SSL disabled")
+    # Read user's SSL preference (default: "on" for first boot)
+    ssl_enabled = "on"
+    if SSL_PREF_FILE.exists():
+        ssl_enabled = SSL_PREF_FILE.read_text().strip()
+
+    if ssl_enabled == "off":
+        print("pgmanager-init: SSL preference is off, disabling SSL")
+        run_sql("ALTER SYSTEM SET ssl = 'off';")
+        update_hba_rules_for_ssl(require_ssl=False)
+        return
+
+    # SSL is enabled (default or explicit "on")
+    # Generate self-signed certs if none exist
+    if not cert_path.exists() or not key_path.exists():
+        generate_self_signed_certs()
+
+    print("pgmanager-init: enabling SSL...")
+    run_sql("ALTER SYSTEM SET ssl = 'on';")
+    run_sql(f"ALTER SYSTEM SET ssl_cert_file = '{cert_path}';")
+    run_sql(f"ALTER SYSTEM SET ssl_key_file = '{key_path}';")
+    if ca_path.exists():
+        run_sql(f"ALTER SYSTEM SET ssl_ca_file = '{ca_path}';")
+
+    # Update HBA rules to require SSL for external connections
+    update_hba_rules_for_ssl(require_ssl=True)
+    print("pgmanager-init: SSL enabled")
 
 
 def main() -> int:
