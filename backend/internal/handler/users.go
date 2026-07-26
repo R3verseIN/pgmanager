@@ -128,6 +128,15 @@ func resolveConnectionStringHost(r *http.Request) string {
 	return host
 }
 
+func (h *Handler) isSSLEnabled() bool {
+	var setting string
+	err := h.pool.QueryRow(context.Background(), "SHOW ssl").Scan(&setting)
+	if err != nil {
+		return false
+	}
+	return setting == "on"
+}
+
 func (h *Handler) InitUserSchema(ctx context.Context) error {
 	_, err := h.pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS managed_users (
@@ -393,6 +402,9 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	host := resolveConnectionStringHost(r)
 	connStr := "postgres://" + req.Username + ":" + password + "@" + host + "/" + req.Databases[0]
+	if h.isSSLEnabled() {
+		connStr += "?sslmode=require"
+	}
 
 	writeJSON(w, http.StatusCreated, createUserResponse{
 		Username:         req.Username,

@@ -89,7 +89,6 @@ services:
       PGPORT: "5432"
       PGUSER: pgmanager
       PGDATABASE: pgmanager
-      PGSSLMODE: disable
       PGBOUNCER_AUTH_PASSWORD: pgmanager
       # WAL-G credentials for CLI commands (backup-push, backup-fetch, etc.)
       WALG_S3_PREFIX: s3://pgmanager-test

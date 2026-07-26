@@ -64,6 +64,16 @@ export type {
 } from "./backup";
 export { fetchSettings, updateSettings } from "./settings";
 export {
+  fetchSSLStatus,
+  generateSSLCerts,
+  uploadSSLCerts,
+  downloadCACert,
+  deleteSSLCerts,
+  togglePgBouncerSSL,
+  applyPgBouncerSSL,
+} from "./ssl";
+export type { SSLStatus, GenerateCertRequest } from "./ssl";
+export {
   fetchWalgStatus,
   fetchWalgBackups,
   triggerWalgBackup,

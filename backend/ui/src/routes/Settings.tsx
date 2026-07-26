@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Shield, Loader2, Save, ScrollText } from "lucide-react";
+import { Shield, Loader2, Save, ScrollText, Lock, Unlock, Download, RefreshCw, AlertTriangle } from "lucide-react";
 import {
   fetchPgBouncerDatabases,
   togglePgBouncerDatabase,
@@ -8,6 +8,12 @@ import {
   updatePgBouncerConfig,
   fetchSettings,
   updateSettings,
+  fetchSSLStatus,
+  generateSSLCerts,
+  uploadSSLCerts,
+  downloadCACert,
+  deleteSSLCerts,
+  togglePgBouncerSSL,
 } from "../api/client";
 import type { PgBouncerDatabase, PgBouncerConfig } from "../api/client";
 import { DatabaseAccessRow } from "../components/DatabaseAccessRow";
@@ -15,6 +21,8 @@ import { Select, SelectTrigger, SelectContent, SelectItem } from "../components/
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Button } from "../components/ui/button";
+import { Switch } from "../components/ui/switch";
+import { Badge } from "../components/ui/badge";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -109,6 +117,79 @@ export default function Settings() {
     },
   });
 
+  // --- SSL / TLS ---
+  const { data: sslStatus, isLoading: sslLoading } = useQuery({
+    queryKey: ["ssl-status"],
+    queryFn: fetchSSLStatus,
+  });
+
+  const [showGenerateForm, setShowGenerateForm] = useState(false);
+  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [generateCN, setGenerateCN] = useState("pgmanager-server");
+  const [generateDays, setGenerateDays] = useState(1825);
+  const uploadCertRef = useRef<HTMLInputElement>(null);
+  const uploadKeyRef = useRef<HTMLInputElement>(null);
+  const uploadCARef = useRef<HTMLInputElement>(null);
+
+  const generateMutation = useMutation({
+    mutationFn: generateSSLCerts,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ssl-status"] });
+      setShowGenerateForm(false);
+    },
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: (formData: FormData) => uploadSSLCerts(formData),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ssl-status"] });
+      setShowUploadForm(false);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteSSLCerts,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ssl-status"] });
+    },
+  });
+
+  const pgbouncerSSLMutation = useMutation({
+    mutationFn: togglePgBouncerSSL,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ssl-status"] });
+    },
+  });
+
+  const handleUpload = () => {
+    const certFile = uploadCertRef.current?.files?.[0];
+    const keyFile = uploadKeyRef.current?.files?.[0];
+    if (!certFile || !keyFile) return;
+
+    const formData = new FormData();
+    formData.append("server_cert", certFile);
+    formData.append("server_key", keyFile);
+    const caFile = uploadCARef.current?.files?.[0];
+    if (caFile) {
+      formData.append("ca_cert", caFile);
+    }
+    uploadMutation.mutate(formData);
+  };
+
+  const handleDownloadCA = async () => {
+    try {
+      const blob = await downloadCACert();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "root.crt";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Error handled by API layer
+    }
+  };
+
   const hasChanges =
     config &&
     (localConfig.poolMode !== config.poolMode ||
@@ -122,8 +203,265 @@ export default function Settings() {
           Settings
         </h1>
         <p className="text-sm text-ink-muted">
-          Manage PgBouncer configuration
+          Manage PgBouncer and SSL configuration
         </p>
+      </div>
+
+      {/* SSL / TLS */}
+      <div className="rounded-lg border border-hairline bg-surface-1 p-4">
+        <div className="mb-4 flex items-center gap-3">
+          {sslStatus?.enabled ? (
+            <Lock className="size-5 text-green-500" />
+          ) : (
+            <Unlock className="size-5 text-ink-muted" />
+          )}
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-medium text-foreground">
+                SSL / TLS
+              </h2>
+              {sslStatus?.enabled ? (
+                <Badge variant="success">Active</Badge>
+              ) : (
+                <Badge variant="secondary">Inactive</Badge>
+              )}
+              {sslStatus?.pendingRestart && (
+                <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                  Restart Required
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-ink-muted">
+              Secure external PostgreSQL connections with SSL/TLS encryption
+            </p>
+          </div>
+        </div>
+
+        {sslLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="size-5 animate-spin text-ink-muted" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Status */}
+            {sslStatus?.hasCerts && (
+              <div className="rounded-md bg-surface-2 p-3 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-ink-muted">Issuer</span>
+                  <span className="text-foreground">{sslStatus.issuer}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink-muted">Expires</span>
+                  <span className="text-foreground">
+                    {sslStatus.expiry ? new Date(sslStatus.expiry).toLocaleDateString() : "N/A"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink-muted">Type</span>
+                  <span className="text-foreground">
+                    {sslStatus.selfSigned ? "Self-signed CA" : "Custom certificate"}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-2">
+              {!sslStatus?.hasCerts && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={generateMutation.isPending}
+                    onClick={() => {
+                      setShowGenerateForm(!showGenerateForm);
+                      setShowUploadForm(false);
+                    }}
+                  >
+                    {generateMutation.isPending ? (
+                      <Loader2 className="mr-1 size-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1 size-4" />
+                    )}
+                    Generate Certificates
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setShowUploadForm(!showUploadForm);
+                      setShowGenerateForm(false);
+                    }}
+                  >
+                    Upload Custom
+                  </Button>
+                </>
+              )}
+              {sslStatus?.hasCerts && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleDownloadCA}
+                  >
+                    <Download className="mr-1 size-4" />
+                    Download CA
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => {
+                      if (confirm("Disable SSL and remove certificates? This will require clients to reconnect without SSL.")) {
+                        deleteMutation.mutate();
+                      }
+                    }}
+                  >
+                    {deleteMutation.isPending ? (
+                      <Loader2 className="mr-1 size-4 animate-spin" />
+                    ) : (
+                      <AlertTriangle className="mr-1 size-4" />
+                    )}
+                    Disable SSL
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {/* Generate Form */}
+            {showGenerateForm && (
+              <div className="rounded-md border border-hairline bg-surface-2 p-4 space-y-3">
+                <div className="space-y-2">
+                  <Label className="text-sm text-ink-muted">Common Name</Label>
+                  <Input
+                    value={generateCN}
+                    onChange={(e) => setGenerateCN(e.target.value)}
+                    placeholder="e.g., pg.example.com or server IP"
+                    className="border-hairline bg-surface-1"
+                  />
+                  <p className="text-xs text-ink-muted">
+                    The hostname or IP clients will use to connect
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm text-ink-muted">Valid for (days)</Label>
+                  <Input
+                    type="number"
+                    min={30}
+                    max={3650}
+                    value={generateDays}
+                    onChange={(e) => setGenerateDays(parseInt(e.target.value) || 1825)}
+                    className="border-hairline bg-surface-1"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowGenerateForm(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={generateMutation.isPending}
+                    onClick={() =>
+                      generateMutation.mutate({
+                        commonName: generateCN,
+                        validityDays: generateDays,
+                      })
+                    }
+                  >
+                    {generateMutation.isPending && (
+                      <Loader2 className="mr-1 size-4 animate-spin" />
+                    )}
+                    Generate & Enable
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Upload Form */}
+            {showUploadForm && (
+              <div className="rounded-md border border-hairline bg-surface-2 p-4 space-y-3">
+                <div className="space-y-2">
+                  <Label className="text-sm text-ink-muted">Server Certificate (.crt)</Label>
+                  <input
+                    ref={uploadCertRef}
+                    type="file"
+                    accept=".crt,.pem,.cert"
+                    className="block w-full text-sm text-ink-muted file:mr-4 file:rounded-md file:border-0 file:bg-surface-1 file:px-3 file:py-1.5 file:text-sm file:text-foreground hover:file:bg-surface-2"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm text-ink-muted">Server Key (.key)</Label>
+                  <input
+                    ref={uploadKeyRef}
+                    type="file"
+                    accept=".key,.pem"
+                    className="block w-full text-sm text-ink-muted file:mr-4 file:rounded-md file:border-0 file:bg-surface-1 file:px-3 file:py-1.5 file:text-sm file:text-foreground hover:file:bg-surface-2"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm text-ink-muted">CA Certificate (optional)</Label>
+                  <input
+                    ref={uploadCARef}
+                    type="file"
+                    accept=".crt,.pem"
+                    className="block w-full text-sm text-ink-muted file:mr-4 file:rounded-md file:border-0 file:bg-surface-1 file:px-3 file:py-1.5 file:text-sm file:text-foreground hover:file:bg-surface-2"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowUploadForm(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={uploadMutation.isPending}
+                    onClick={handleUpload}
+                  >
+                    {uploadMutation.isPending && (
+                      <Loader2 className="mr-1 size-4 animate-spin" />
+                    )}
+                    Upload & Enable
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* PgBouncer SSL Toggle */}
+            {sslStatus?.hasCerts && (
+              <div className="flex items-center justify-between rounded-md bg-surface-2 p-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    PgBouncer Client TLS
+                  </p>
+                  <p className="text-xs text-ink-muted">
+                    Accept SSL connections from clients through PgBouncer
+                    {sslStatus.pendingRestart && (
+                      <span className="ml-1 text-amber-500">
+                        (restart pgbouncer container to apply)
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <Switch
+                  checked={sslStatus.pgBouncerSSL}
+                  disabled={pgbouncerSSLMutation.isPending}
+                  onCheckedChange={(checked) =>
+                    pgbouncerSSLMutation.mutate(checked)
+                  }
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Connection Pool */}

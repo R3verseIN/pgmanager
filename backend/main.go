@@ -63,6 +63,7 @@ func main() {
 	ah := handler.NewAuthHandler(pool)
 	sh := handler.NewSettingsHandler(pool)
 	wh := handler.NewWalgHandler(pool)
+	ssh := handler.NewSSLHandler(pool, "/var/lib/postgresql/data")
 
 	if err := h.InitUserSchema(ctx); err != nil {
 		log.Printf("warning: failed to init user schema: %v", err)
@@ -309,6 +310,36 @@ func main() {
 			return
 		}
 
+		// SSL routes (admin only)
+		if method == "GET" && path == "/api/ssl/status" {
+			ssh.GetStatus(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/ssl/generate" {
+			ssh.GenerateCerts(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/ssl/upload" {
+			ssh.UploadCerts(w, r)
+			return
+		}
+		if method == "GET" && path == "/api/ssl/download" {
+			ssh.DownloadCA(w, r)
+			return
+		}
+		if method == "DELETE" && path == "/api/ssl" {
+			ssh.DeleteCerts(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/ssl/pgbouncer" {
+			ssh.TogglePgBouncerSSL(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/ssl/pgbouncer/apply" {
+			ssh.ApplyPgBouncerSSL(w, r)
+			return
+		}
+
 		// Restore is admin-only (must be after admin check below)
 		if method == "POST" && path == "/api/backup/restore" {
 			h.RestoreBackup(w, r)
@@ -416,10 +447,7 @@ func buildDatabaseURL() string {
 		dbname = "pgmanager"
 	}
 
-	sslmode := os.Getenv("PGSSLMODE")
-	if sslmode == "" {
-		sslmode = "disable"
-	}
+	sslmode := "disable"
 
 	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", user, password, host, port, dbname, sslmode)
 	log.Printf("connecting to database at %s:%s/%s as %s", host, port, dbname, user)
@@ -441,11 +469,7 @@ func buildBaseDSN() string {
 			if dbname == "" {
 				dbname = "pgmanager"
 			}
-			sslmode := u.Query().Get("sslmode")
-			if sslmode == "" {
-				sslmode = "disable"
-			}
-			return fmt.Sprintf("postgres://%s:%s@%s:%s/?sslmode=%s", user, password, host, port, sslmode)
+		return fmt.Sprintf("postgres://%s:%s@%s:%s/?sslmode=disable", user, password, host, port)
 		}
 	}
 
@@ -471,12 +495,7 @@ func buildBaseDSN() string {
 		user = "pgmanager"
 	}
 
-	sslmode := os.Getenv("PGSSLMODE")
-	if sslmode == "" {
-		sslmode = "disable"
-	}
-
-	return fmt.Sprintf("postgres://%s:%s@%s:%s/?sslmode=%s", user, password, host, port, sslmode)
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/?sslmode=disable", user, password, host, port)
 }
 
 func readPassword(path string) string {

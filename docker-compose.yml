@@ -41,7 +41,6 @@ services:
       PGPORT: "5432"
       PGUSER: pgmanager
       PGDATABASE: pgmanager
-      PGSSLMODE: disable
       PGBOUNCER_AUTH_PASSWORD: /var/lib/postgresql/data/pgbouncer-auth-password
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
@@ -53,7 +52,7 @@ services:
       WALG_BACKUP_INTERVAL: ${WALG_BACKUP_INTERVAL:-3600}
       WALG_BACKUP_RETENTION_DAYS: ${WALG_BACKUP_RETENTION_DAYS:-7}
     volumes:
-      - pgdata:/var/lib/postgresql/data:ro
+      - pgdata:/var/lib/postgresql/data
       - pgbouncer_shared:/etc/pgbouncer/shared
     depends_on:
       db:

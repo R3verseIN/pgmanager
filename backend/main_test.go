@@ -49,7 +49,6 @@ func TestBuildDatabaseURL_FromSecretPath(t *testing.T) {
 	t.Setenv("PGPORT", "5433")
 	t.Setenv("PGUSER", "testuser")
 	t.Setenv("PGDATABASE", "testdb")
-	t.Setenv("PGSSLMODE", "require")
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "password")
@@ -57,7 +56,7 @@ func TestBuildDatabaseURL_FromSecretPath(t *testing.T) {
 	t.Setenv("SECRET_PATH", path)
 
 	got := buildDatabaseURL()
-	expected := "postgres://testuser:mypassword@testhost:5433/testdb?sslmode=require"
+	expected := "postgres://testuser:mypassword@testhost:5433/testdb?sslmode=disable"
 	if got != expected {
 		t.Fatalf("expected %s, got %s", expected, got)
 	}
@@ -69,7 +68,6 @@ func TestBuildDatabaseURL_Defaults(t *testing.T) {
 	t.Setenv("PGPORT", "")
 	t.Setenv("PGUSER", "")
 	t.Setenv("PGDATABASE", "")
-	t.Setenv("PGSSLMODE", "")
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "password")

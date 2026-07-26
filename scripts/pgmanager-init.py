@@ -173,9 +173,9 @@ def ensure_hba_rules() -> None:
             "host all pgbouncer_auth 172.16.0.0/12 trust\n"
             "host all pgbouncer_auth 192.168.0.0/16 trust\n"
             "host all pgbouncer_auth 10.0.0.0/8 trust\n"
-            "# External connections rejected\n"
-            "host all all 0.0.0.0/0 reject\n"
-            "host all all ::0/0 reject\n"
+            "# External connections (SSL required)\n"
+            "hostssl all all 0.0.0.0/0 scram-sha-256\n"
+            "hostssl all all ::0/0 scram-sha-256\n"
         )
         content = re.sub(
             r'host\s+all\s+all\s+all\s+scram-sha-256',
@@ -216,6 +216,25 @@ def configure_wal_archiving() -> None:
     print(f"pgmanager-init: WAL archiving configured (timeout={archive_timeout}s)")
 
 
+def configure_ssl() -> None:
+    """Detect SSL certificates and configure PostgreSQL accordingly."""
+    print("pgmanager-init: checking SSL certificates...")
+    cert_path = DATA_DIR / "server.crt"
+    key_path = DATA_DIR / "server.key"
+    ca_path = DATA_DIR / "root.crt"
+
+    if cert_path.exists() and key_path.exists():
+        print("pgmanager-init: SSL certificates found, enabling SSL...")
+        run_sql("ALTER SYSTEM SET ssl = 'on';")
+        run_sql(f"ALTER SYSTEM SET ssl_cert_file = '{cert_path}';")
+        run_sql(f"ALTER SYSTEM SET ssl_key_file = '{key_path}';")
+        if ca_path.exists():
+            run_sql(f"ALTER SYSTEM SET ssl_ca_file = '{ca_path}';")
+        print("pgmanager-init: SSL enabled")
+    else:
+        print("pgmanager-init: no SSL certificates found, SSL disabled")
+
+
 def main() -> int:
     print("pgmanager-init: starting...")
 
@@ -238,6 +257,7 @@ def main() -> int:
         ensure_hba_rules()
         revoke_system_db_connect()
         configure_wal_archiving()
+        configure_ssl()
         print("pgmanager-init: all checks passed")
     except Exception as e:
         print(f"pgmanager-init: ERROR: {e}", file=sys.stderr)
