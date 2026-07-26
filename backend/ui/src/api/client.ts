@@ -73,6 +73,7 @@ export {
   deleteWalgBackup,
   verifyWalgIntegrity,
   cleanWalgGarbage,
+  testWalgConnection,
 } from "./walg";
 export type {
   WalgStatus,

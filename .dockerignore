@@ -11,3 +11,6 @@ admin-cli/
 docker-compose*.yml
 *.md
 docs/
+
+# walg-setup tool (standalone, not needed in Docker)
+scripts/walg-setup/

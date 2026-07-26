@@ -36,7 +36,7 @@ export default function MobileSidebar({
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
-              src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png"
+              src="/logo.png"
               alt="pgmanager logo"
               className="size-8 shrink-0 object-contain"
             />

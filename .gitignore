@@ -7,3 +7,7 @@ target/
 backend/pgmanager
 __pycache__/
 *.pyc
+
+# walg-setup tool
+scripts/walg-setup/walg-setup
+scripts/walg-setup/walg.env

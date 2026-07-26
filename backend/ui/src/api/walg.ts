@@ -7,6 +7,7 @@ export interface WalgStatus {
   s3Prefix: string;
   lastBackup: string;
   backupCount: number;
+  totalSize: number;
   intervalSec: number;
   retentionDays: number;
 }
@@ -15,6 +16,7 @@ export interface WalgBackup {
   name: string;
   time: string;
   walSegment: string;
+  size: number;
   status: string;
 }
 
@@ -42,8 +44,6 @@ export async function fetchWalgConfig(): Promise<WalgConfig> {
 
 export async function updateWalgConfig(config: {
   s3Prefix: string;
-  accessKeyId?: string;
-  secretKey?: string;
   endpoint?: string;
   region?: string;
   forcePathStyle?: boolean;
@@ -95,4 +95,11 @@ export async function cleanWalgGarbage(): Promise<{
   output: string;
 }> {
   return request("/walg/garbage", { method: "DELETE" });
+}
+
+export async function testWalgConnection(): Promise<{
+  status: string;
+  message: string;
+}> {
+  return request("/walg/test-connection", { method: "POST" });
 }

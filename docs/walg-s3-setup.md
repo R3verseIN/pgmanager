@@ -7,7 +7,7 @@ pgmanager uses [WAL-G](https://github.com/wal-g/wal-g) for continuous WAL archiv
 1. **WAL Archiving** — PostgreSQL archives WAL segments to S3 via `archive_command` (`wal-g wal-push %p`) every `archive_timeout` seconds (default: 10s in test, 300s in production).
 2. **Base Backups** — Full base backups run at `WALG_BACKUP_INTERVAL` (default: 3600s). Configurable via the S3 Backups UI.
 3. **Point-in-Time Recovery** — Restore to any point in time by replaying WAL segments from a base backup.
-4. **Garbage Collection** — Old backups are cleaned up based on `WALG_BACKUP_RETENTION_DAYS` (default: 7).
+4. **Automatic Cleanup** — After each scheduled backup, expired WAL segments and backups beyond the retention period are automatically cleaned up via `wal-g delete garbage`. You can also trigger cleanup manually via the "Clean Garbage" button.
 
 ## Common Configuration
 
@@ -24,7 +24,7 @@ These environment variables go in your `.env` file. All providers use the same v
 | `WALG_BACKUP_INTERVAL` | Base backup interval in seconds (default: `3600`) | No |
 | `WALG_BACKUP_RETENTION_DAYS` | Days to keep backups (default: `7`) | No |
 
-> **Note:** Sensitive credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) stay in environment variables only. Non-sensitive settings (interval, retention, path style) are also stored in the database and configurable via the S3 Backups UI.
+> **Note:** Sensitive credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) must be set via environment variables in `.env` — they cannot be configured through the web UI for security reasons. Non-sensitive settings (bucket path, endpoint, region, interval, retention) are stored in the database and configurable via the S3 Backups UI.
 
 ## AWS S3
 

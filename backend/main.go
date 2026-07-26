@@ -352,6 +352,10 @@ func main() {
 			wh.CleanGarbage(w, r)
 			return
 		}
+		if method == "POST" && path == "/api/walg/test-connection" {
+			wh.TestConnection(w, r)
+			return
+		}
 
 		http.NotFound(w, r)
 	})))

@@ -17,12 +17,13 @@ import {
   updateWalgConfig,
   fetchWalgBackups,
   triggerWalgBackup,
-  restoreWalgBackup,
   deleteWalgBackup,
   verifyWalgIntegrity,
   cleanWalgGarbage,
+  testWalgConnection,
 } from "../api/client";
 import type { WalgBackup } from "../api/client";
+import RestoreDialog from "../components/dialogs/RestoreDialog";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -52,8 +53,6 @@ export default function WalgBackups() {
 
   // Config form state
   const [s3Prefix, setS3Prefix] = useState("");
-  const [accessKeyId, setAccessKeyId] = useState("");
-  const [secretKey, setSecretKey] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [region, setRegion] = useState("us-east-1");
   const [forcePathStyle, setForcePathStyle] = useState(false);
@@ -76,8 +75,6 @@ export default function WalgBackups() {
     mutationFn: () =>
       updateWalgConfig({
         s3Prefix,
-        ...((accessKeyId || undefined) && { accessKeyId }),
-        ...((secretKey || undefined) && { secretKey }),
         ...((endpoint || undefined) && { endpoint }),
         region,
         forcePathStyle,
@@ -88,8 +85,6 @@ export default function WalgBackups() {
       toast.success(data.message || "Configuration saved");
       queryClient.invalidateQueries({ queryKey: ["walg-config"] });
       queryClient.invalidateQueries({ queryKey: ["walg-status"] });
-      setAccessKeyId("");
-      setSecretKey("");
     },
     onError: (err: Error) => {
       toast.error(err.message);
@@ -133,14 +128,19 @@ export default function WalgBackups() {
     },
   });
 
-  const handleRestore = async (backupName: string, database: string) => {
-    try {
-      await restoreWalgBackup(backupName, database);
-      toast.success(`Restored from ${backupName} to ${database}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Restore failed");
-    }
-  };
+  const testConnectionMutation = useMutation({
+    mutationFn: testWalgConnection,
+    onSuccess: (data) => {
+      toast.success(data.message || "Connection successful");
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+    },
+  });
+
+  // Restore dialog state
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const [restoreBackupName, setRestoreBackupName] = useState("");
 
   const handleDelete = async (name: string) => {
     if (!confirm(`Delete backup ${name}? This cannot be undone.`)) return;
@@ -153,6 +153,14 @@ export default function WalgBackups() {
       toast.error(err instanceof Error ? err.message : "Delete failed");
     }
   };
+
+  function formatBytes(bytes: number): string {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  }
 
   if (statusLoading) {
     return (
@@ -194,6 +202,11 @@ export default function WalgBackups() {
                 <span>
                   Backups: {status.backupCount}
                 </span>
+                {status.totalSize > 0 && (
+                  <span>
+                    Storage: {formatBytes(status.totalSize)}
+                  </span>
+                )}
                 {status.lastBackup && (
                   <span>
                     Last: {new Date(status.lastBackup).toLocaleString()}
@@ -271,31 +284,21 @@ export default function WalgBackups() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="text-sm text-ink-muted">
-                  Access Key ID
-                </Label>
-                <Input
-                  type="password"
-                  value={accessKeyId}
-                  onChange={(e) => setAccessKeyId(e.target.value)}
-                  placeholder={config?.endpoint ? "••••••••" : "AKIAIOSFODNN7EXAMPLE"}
-                  className="border-hairline bg-surface-2"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm text-ink-muted">
-                  Secret Access Key
-                </Label>
-                <Input
-                  type="password"
-                  value={secretKey}
-                  onChange={(e) => setSecretKey(e.target.value)}
-                  placeholder={config?.endpoint ? "••••••••" : "wJalrXUtnFEMI/K7MDENG"}
-                  className="border-hairline bg-surface-2"
-                />
-              </div>
+            <div className="rounded-md bg-surface-2 p-3 text-xs text-ink-muted">
+              <p>
+                S3 credentials (<code className="text-foreground">AWS_ACCESS_KEY_ID</code>,{" "}
+                <code className="text-foreground">AWS_SECRET_ACCESS_KEY</code>) are
+                configured via environment variables. See the{" "}
+                <a
+                  href="https://github.com/R3verseIN/pgmanager/blob/main/docs/walg-s3-setup.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent-blue underline"
+                >
+                  setup guide
+                </a>{" "}
+                for provider-specific instructions.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -390,6 +393,19 @@ export default function WalgBackups() {
               </Button>
               <Button
                 size="sm"
+                variant="outline"
+                disabled={testConnectionMutation.isPending || !s3Prefix}
+                onClick={() => testConnectionMutation.mutate()}
+              >
+                {testConnectionMutation.isPending ? (
+                  <Loader2 className="mr-1 size-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-1 size-4" />
+                )}
+                Test Connection
+              </Button>
+              <Button
+                size="sm"
                 disabled={configMutation.isPending || !s3Prefix}
                 onClick={() => configMutation.mutate()}
               >
@@ -442,6 +458,7 @@ export default function WalgBackups() {
                     <th className="pb-2 font-medium">Name</th>
                     <th className="pb-2 font-medium">Time</th>
                     <th className="pb-2 font-medium">WAL Segment</th>
+                    <th className="pb-2 font-medium text-right">Size</th>
                     <th className="pb-2 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
@@ -459,6 +476,9 @@ export default function WalgBackups() {
                       <td className="py-2 font-mono text-xs text-ink-muted">
                         {backup.walSegment || "—"}
                       </td>
+                      <td className="py-2 text-right text-xs text-ink-muted">
+                        {backup.size > 0 ? formatBytes(backup.size) : "—"}
+                      </td>
                       <td className="py-2 text-right">
                         <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                           <Button
@@ -466,11 +486,8 @@ export default function WalgBackups() {
                             variant="ghost"
                             className="h-7 px-2 text-xs"
                             onClick={() => {
-                              const db = prompt(
-                                "Restore to which database?",
-                                "postgres"
-                              );
-                              if (db) handleRestore(backup.name, db);
+                              setRestoreBackupName(backup.name);
+                              setRestoreDialogOpen(true);
                             }}
                           >
                             <Download className="mr-1 size-3" />
@@ -524,6 +541,16 @@ export default function WalgBackups() {
           </div>
         </div>
       )}
+
+      <RestoreDialog
+        open={restoreDialogOpen}
+        onOpenChange={setRestoreDialogOpen}
+        backupName={restoreBackupName}
+        onRestored={() => {
+          queryClient.invalidateQueries({ queryKey: ["walg-backups"] });
+          queryClient.invalidateQueries({ queryKey: ["walg-status"] });
+        }}
+      />
     </div>
   );
 }

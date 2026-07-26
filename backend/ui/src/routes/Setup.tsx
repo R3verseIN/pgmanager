@@ -57,7 +57,7 @@ export default function Setup() {
       <div className="w-full max-w-95 rounded-xl border border-hairline bg-surface-1 p-6 shadow-sm sm:p-10">
         <div className="mb-8 text-center">
           <img 
-            src="/1784864797625-019f923a-f479-741b-acd9-2e57c32ad86c.png" 
+            src="/logo.png" 
             alt="pgmanager logo" 
             className="mx-auto mb-4 size-12 object-contain" 
           />

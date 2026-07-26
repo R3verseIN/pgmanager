@@ -47,6 +47,7 @@ type walgStatusResponse struct {
 	S3Prefix      string `json:"s3Prefix"`
 	LastBackup    string `json:"lastBackup,omitempty"`
 	BackupCount   int    `json:"backupCount"`
+	TotalSize     int64  `json:"totalSize"`
 	IntervalSec   int    `json:"intervalSec"`
 	RetentionDays int    `json:"retentionDays"`
 }
@@ -55,13 +56,12 @@ type walgBackupEntry struct {
 	Name       string `json:"name"`
 	Time       string `json:"time"`
 	WalSegment string `json:"walSegment"`
+	Size       int64  `json:"size"`
 	Status     string `json:"status"`
 }
 
 type walgConfigRequest struct {
 	S3Prefix      string `json:"s3Prefix"`
-	AccessKeyID   string `json:"accessKeyId,omitempty"`
-	SecretKey     string `json:"secretKey,omitempty"`
 	Endpoint      string `json:"endpoint,omitempty"`
 	Region        string `json:"region,omitempty"`
 	ForcePathStyle *bool `json:"forcePathStyle,omitempty"`
@@ -281,10 +281,15 @@ func (wh *WalgHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		resp.Archiving = true
 	}
 
-	// Get backup count and last backup time
+	// Get backup count, last backup time, and total size
 	backups, err := wh.listBackups(ctx)
 	if err == nil {
 		resp.BackupCount = len(backups)
+		var totalSize int64
+		for _, b := range backups {
+			totalSize += b.Size
+		}
+		resp.TotalSize = totalSize
 		if len(backups) > 0 {
 			resp.LastBackup = backups[0].Time
 		}
@@ -429,6 +434,11 @@ func (wh *WalgHandler) listBackups(ctx context.Context) ([]walgBackupEntry, erro
 		}
 		if wal, ok := b["wal_file_name"].(string); ok {
 			entry.WalSegment = wal
+		}
+		if size, ok := b["backup_size"].(float64); ok {
+			entry.Size = int64(size)
+		} else if size, ok := b["size"].(float64); ok {
+			entry.Size = int64(size)
 		}
 		backups = append(backups, entry)
 	}
@@ -700,6 +710,31 @@ func (wh *WalgHandler) CleanGarbage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// POST /api/walg/test-connection
+func (wh *WalgHandler) TestConnection(w http.ResponseWriter, r *http.Request) {
+	cfg := wh.getConfigFromDB()
+	if cfg.S3Prefix == "" {
+		writeError(w, http.StatusBadRequest, "WAL-G is not configured. Set S3 bucket path first.")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	// Try to list backups — this validates S3 connectivity and credentials
+	_, err := wh.listBackups(ctx)
+	if err != nil {
+		errMsg := sanitizeRedact(err.Error())
+		writeError(w, http.StatusInternalServerError, "connection failed: "+errMsg)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "Connected to " + cfg.S3Prefix,
+	})
+}
+
 func (wh *WalgHandler) getPgDataDir(ctx context.Context) string {
 	if v := os.Getenv("PGDATA"); v != "" {
 		return v
@@ -772,6 +807,18 @@ func (wh *WalgHandler) RunScheduledBackup() {
 		return
 	}
 	log.Printf("walg: scheduled backup completed: %s", strings.TrimSpace(string(output)))
+
+	// Run garbage cleanup after successful backup to remove expired WAL segments
+	// and backups beyond retention period.
+	gcCtx, gcCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer gcCancel()
+
+	gcOutput, gcErr := wh.runWalg(gcCtx, []string{"delete", "garbage", "--confirm"})
+	if gcErr != nil {
+		log.Printf("walg: scheduled garbage cleanup failed: %v", gcErr)
+	} else {
+		log.Printf("walg: scheduled garbage cleanup completed: %s", strings.TrimSpace(string(gcOutput)))
+	}
 }
 
 func envOr(key, fallback string) string {
