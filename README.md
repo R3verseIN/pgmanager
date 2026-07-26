@@ -98,6 +98,7 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 |----------|-------------|----------|
 | `POSTGRES_PASSWORD` | PostgreSQL superuser password | Yes |
 | `PGBOUNCER_AUTH_PASSWORD` | PgBouncer auth proxy password | Yes |
+| `PGMANAGER_HOST` | Hostname/IP for user connection strings (e.g., `pg.example.com:5432`). Auto-detected from the web UI's Host header if not set. | No |
 
 **Password rules:**
 - 8-72 characters

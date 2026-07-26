@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -102,6 +103,29 @@ func validPassword(s string) bool {
 		return false
 	}
 	return validPasswordPattern.MatchString(s)
+}
+
+// resolveConnectionStringHost returns the host:port for PostgreSQL connection strings.
+// If PGMANAGER_HOST is set, it is used as-is (user must include port if non-default).
+// Otherwise, the host is auto-detected from the HTTP request's Host header and port 5432 is appended.
+func resolveConnectionStringHost(r *http.Request) string {
+	host := os.Getenv("PGMANAGER_HOST")
+	if host == "" {
+		h, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host = r.Host
+		} else {
+			host = h
+		}
+		host = net.JoinHostPort(host, "5432")
+	} else if _, _, err := net.SplitHostPort(host); err != nil {
+		port := os.Getenv("PGMANAGER_PORT")
+		if port == "" {
+			port = "5432"
+		}
+		host = net.JoinHostPort(host, port)
+	}
+	return host
 }
 
 func (h *Handler) InitUserSchema(ctx context.Context) error {
@@ -367,15 +391,8 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	host := os.Getenv("PGMANAGER_HOST")
-	if host == "" {
-		host = "localhost"
-	}
-	port := os.Getenv("PGMANAGER_PORT")
-	if port == "" {
-		port = "5432"
-	}
-	connStr := "postgres://" + req.Username + ":" + password + "@" + host + ":" + port + "/" + req.Databases[0]
+	host := resolveConnectionStringHost(r)
+	connStr := "postgres://" + req.Username + ":" + password + "@" + host + "/" + req.Databases[0]
 
 	writeJSON(w, http.StatusCreated, createUserResponse{
 		Username:         req.Username,

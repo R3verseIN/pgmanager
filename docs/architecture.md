@@ -53,6 +53,12 @@ Application code connects to PostgreSQL using credentials created through the ad
 postgresql://app_user:password@your-host:5432/mydb
 ```
 
+**Connection string host resolution:** When a user is created, the connection string's host is determined automatically:
+- If `PGMANAGER_HOST` is set, it is used as-is (e.g., `pg.example.com:5432`). Include the port if non-default.
+- If `PGMANAGER_HOST` is not set, the host is auto-detected from the web UI's `Host` header (e.g., accessing via `http://192.168.0.13:8080` yields host `192.168.0.13:5432`).
+
+This means connection strings adapt to how you access the web UI — no hardcoded IPs needed when accessing from the same network.
+
 PgBouncer handles authentication (verifies credentials against PostgreSQL roles), connection pooling (multiplexes 100+ client connections through 20 server connections), IP allowlisting (per-user firewall rules in `pg_hba.conf`), and transaction pooling (releases server connections between transactions for efficiency).
 
 ## Authentication Model
