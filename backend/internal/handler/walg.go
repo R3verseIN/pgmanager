@@ -621,6 +621,7 @@ func (wh *WalgHandler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		"-p", tmpPort,
 		"-k", tmpSocketDir,
 	)
+	pgCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	pgCmd.Env = append(os.Environ(), "LC_ALL=C")
 	pgCmd.Env = append(pgCmd.Env, wh.walgEnv()...)
 	pgCmd.Stdout = &pgStderr
@@ -630,10 +631,7 @@ func (wh *WalgHandler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("walg-restore: temp postgres started (pid=%d)", pgCmd.Process.Pid)
-	defer func() {
-		pgCmd.Process.Signal(os.Interrupt)
-		pgCmd.Wait()
-	}()
+	defer cleanupPostgres(pgCmd)
 
 	// Get admin user for connection checks
 	_, _, adminUser, _ := wh.getPgCredentials()
@@ -696,10 +694,6 @@ func (wh *WalgHandler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stop temp postgres
-	pgCmd.Process.Signal(os.Interrupt)
-	pgCmd.Wait()
-
 	// Step 4: pg_restore into the target database
 	host, port, pgUser, pgPassword := wh.getPgCredentials()
 	restoreCmd := exec.CommandContext(ctx, "pg_restore",
@@ -737,6 +731,51 @@ func (wh *WalgHandler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		"database": req.Database,
 		"backup":   backupName,
 	})
+}
+
+// cleanupPostgres gracefully shuts down a temp postgres process and all its children.
+// Uses process group kill to ensure no orphaned backend workers remain.
+func cleanupPostgres(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	pgPid := cmd.Process.Pid
+
+	// SIGINT to entire process group (graceful shutdown)
+	if err := syscall.Kill(-pgPid, syscall.SIGINT); err != nil {
+		// Process group may already be dead
+		cmd.Wait()
+		reapOrphans()
+		return
+	}
+
+	// Wait up to 10s for clean shutdown
+	done := make(chan struct{})
+	go func() {
+		cmd.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		// SIGKILL entire process group (force kill)
+		syscall.Kill(-pgPid, syscall.SIGKILL)
+		<-done
+	}
+
+	reapOrphans()
+}
+
+// reapOrphans reaps any remaining child processes that escaped the process group kill.
+func reapOrphans() {
+	for {
+		var wstatus syscall.WaitStatus
+		pid, err := syscall.Wait4(-1, &wstatus, syscall.WNOHANG, nil)
+		if err != nil || pid <= 0 {
+			break
+		}
+	}
 }
 
 func findPGDataDir(root string) string {
