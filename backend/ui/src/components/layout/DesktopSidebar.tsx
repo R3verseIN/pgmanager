@@ -10,6 +10,7 @@ import {
   ScrollText,
   Shield,
   DatabaseBackup,
+  Cloud,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import NavItem from "./NavItem";
@@ -92,6 +93,14 @@ export default function DesktopSidebar({
               icon={Shield}
               label="Settings"
               isActive={selectedKey === "settings"}
+              isCollapsed={isCollapsed}
+              className="mt-1"
+            />
+            <NavItem
+              to="/walg"
+              icon={Cloud}
+              label="S3 Backups"
+              isActive={selectedKey === "walg"}
               isCollapsed={isCollapsed}
               className="mt-1"
             />

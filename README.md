@@ -37,6 +37,7 @@
 - **User Management** — Create PostgreSQL users with granular access levels (read, write, ddl, full) and IP allowlisting
 - **Auth Users** — Manage web app login accounts with admin/dev/viewer roles
 - **Backup & Restore** — Stream backups via `pg_dump`, restore with `pg_restore`, inspect dump contents
+- **S3 Backups (WAL-G)** — Continuous WAL archiving to S3-compatible storage, automated base backups, point-in-time recovery
 - **PgBouncer Control** — Toggle database access, configure pool mode/size, live reload
 - **Audit Logging** — Every action logged with user, IP, timestamp, and detail
 - **Admin CLI** — Recovery tool for user management when the web UI is inaccessible
@@ -99,6 +100,14 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 | `POSTGRES_PASSWORD` | PostgreSQL superuser password | Yes |
 | `PGBOUNCER_AUTH_PASSWORD` | PgBouncer auth proxy password | Yes |
 | `PGMANAGER_HOST` | Hostname/IP for user connection strings (e.g., `pg.example.com:5432`). Auto-detected from the web UI's Host header if not set. | No |
+| `WALG_S3_PREFIX` | S3 bucket URI for WAL-G backups (e.g., `s3://my-bucket/pgmanager`). Leave empty to disable. | No |
+| `AWS_ACCESS_KEY_ID` | S3 access key ID (required for WAL-G) | If using WAL-G |
+| `AWS_SECRET_ACCESS_KEY` | S3 secret access key (required for WAL-G) | If using WAL-G |
+| `AWS_ENDPOINT` | S3 endpoint URL — required for MinIO/SeaweedFS, leave empty for AWS S3 | If using non-AWS |
+| `AWS_REGION` | S3 region (default: `us-east-1`) | No |
+| `AWS_S3_FORCE_PATH_STYLE` | Set to `true` for MinIO and S3-compatible storage | No |
+| `WALG_BACKUP_INTERVAL` | Base backup interval in seconds (default: `3600`) | No |
+| `WALG_BACKUP_RETENTION_DAYS` | Days to keep backups (default: `7`) | No |
 
 **Password rules:**
 - 8-72 characters

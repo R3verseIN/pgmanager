@@ -160,7 +160,7 @@ func TestRebuildPgBouncerHBA_InternalRulesAlwaysPresent(t *testing.T) {
 
 	required := []string{
 		"host all pgbouncer_auth 172.16.0.0/12 trust",
-		"host all pgmanager 172.16.0.0/12 trust",
+		"host all pgmanager 172.16.0.0/12 scram-sha-256",
 		"host all all 0.0.0.0/0 reject",
 		"host all all ::0/0 reject",
 	}

@@ -71,6 +71,12 @@ Sessions are managed via `session_id` cookies with HttpOnly, SameSite=Strict, an
 
 PgBouncer uses HBA-based authentication: the client connects with username/password, PgBouncer queries the `pgbouncer_get_user()` function to look up the role, HBA rules are checked (per-user IP allowlist), and if allowed, the connection is authenticated against PostgreSQL's password hash. HBA files are regenerated on every user change and PgBouncer is reloaded automatically.
 
+The internal PgBouncer HBA rules follow this order:
+1. `pgbouncer_auth` — trust (PgBouncer connects as this user to look up password hashes via `auth_query`; SELECT-only on `pgbouncer_get_user()`)
+2. `pgmanager` — scram-sha-256 (app superuser; requires password auth)
+3. Per-user rules — scram-sha-256 with IPs from the `allowed_ips` JSONB column
+4. Catch-all reject — blocks any unmatched connection
+
 ## Authorization
 
 ### Web UI Roles
@@ -98,7 +104,13 @@ PgBouncer runs in transaction pooling mode. Clients connect on port 5432 (mapped
 
 ### Dynamic HBA File Generation
 
-The Go backend generates PgBouncer's `pg_hba.conf` file dynamically. It queries the `managed_users` table for all PostgreSQL users and their `allowed_ips`, builds HBA rules (`host all "username" <ip>/32 scram-sha-256`), writes to `/etc/pgbouncer/shared/pg_hba.conf` via a shared volume, and issues `RELOAD` to PgBouncer via the admin console.
+The Go backend generates PgBouncer's `pg_hba.conf` file dynamically via `RebuildPgBouncerHBA()`. It queries the `managed_users` table for all PostgreSQL users and their `allowed_ips`, builds HBA rules (`host all "username" <ip>/32 scram-sha-256`), writes to `/etc/pgbouncer/shared/pg_hba.conf` via a shared volume, and issues `RELOAD` to PgBouncer via the admin console.
+
+The generated rules follow a strict order:
+1. `pgbouncer_auth` trust rules (localhost + Docker CIDRs) — PgBouncer connects as this user to look up password hashes
+2. `pgmanager` scram-sha-256 rules (Docker CIDRs) — app superuser auth
+3. Per-user scram-sha-256 rules from `managed_users` — each user gets rules for their `allowed_ips`
+4. Catch-all reject — blocks any connection not matched above
 
 This runs on startup, every 5 minutes (periodic rebuild), after any user create/update/delete, and after any database create/delete.
 
@@ -124,6 +136,48 @@ Relationships: `auth_users` has many `sessions` and `dev_databases` (cascade del
 
 The startup flow runs through `pg-entrypoint.sh` in the `db` container. On first start, it delegates to Docker's standard `docker-entrypoint.sh` for `initdb`. On subsequent starts, it boots PostgreSQL temporarily, runs `pgmanager-init.py`, then stops the temporary instance and starts PostgreSQL normally.
 
-The init script validates environment variables, writes password files to the shared volume, ensures the PostgreSQL user exists with the correct password, ensures the database exists and is owned correctly, creates the `pgbouncer_auth` user and `pgbouncer_get_user()` function, configures HBA rules (trust for Docker network, reject external), and revokes CONNECT on system databases from PUBLIC.
+The init script validates environment variables, writes password files to the shared volume, ensures the PostgreSQL user exists with the correct password, ensures the database exists and is owned correctly, creates the `pgbouncer_auth` user and `pgbouncer_get_user()` function, configures HBA rules (scram-sha-256 for pgmanager, trust for pgbouncer_auth, reject external), and revokes CONNECT on system databases from PUBLIC.
 
 This runs on **every startup**, not just the first. Password files stay in sync with environment variables, the `pgbouncer_auth` function stays up to date, HBA rules are restored if tampered with, and system database protections are always enforced.
+
+PostgreSQL's `pg_hba.conf` is managed by the init script on first start. It replaces the default PG17 catch-all `host all all all scram-sha-256` line with scoped per-user rules and adds a marker comment (`# pgmanager-init: managed`) to skip replacement on subsequent runs. PgBouncer's HBA file is managed separately by the Go app via `RebuildPgBouncerHBA()`.
+
+## WAL-G Backup Architecture
+
+pgmanager integrates [WAL-G](https://github.com/wal-g/wal-g) for continuous WAL archiving and base backups to S3-compatible storage. This provides point-in-time recovery (PITR) capability alongside the existing pg_dump backup system.
+
+### How It Works
+
+1. **WAL Archiving** — PostgreSQL continuously archives WAL segments to S3 via `archive_command` (`wal-g wal-push %p`), running every `archive_timeout` seconds (default: 60s).
+2. **Base Backups** — WAL-G creates full base backups at the configured interval (`WALG_BACKUP_INTERVAL`, default: 3600s). Backups are stored in S3 with metadata (backup name, time, WAL segment).
+3. **Point-in-Time Recovery** — Restore to any point in time by replaying WAL segments from the base backup. The `restore_command` (`wal-g wal-fetch %f %p`) retrieves WAL files from S3 during recovery.
+4. **Garbage Collection** — Old backups and WAL segments are cleaned up based on `WALG_BACKUP_RETENTION_DAYS` (default: 7 days).
+
+### Container Layout
+
+- **db container** — WAL-G binary installed. Runs `archive_command` (local push to S3). PostgreSQL configured with `wal_level=replica`, `archive_mode=on`.
+- **app container** — WAL-G binary installed. Remote operations via BASE_BACKUP protocol (list, trigger, restore, delete, verify). The Go backend manages WAL-G configuration and backup lifecycle through the S3 Backups UI.
+
+### S3 Configuration
+
+All S3 settings are configured via environment variables in `.env`:
+
+```
+WALG_S3_PREFIX=s3://my-bucket/pgmanager    # S3 URI (required to enable)
+AWS_ACCESS_KEY_ID=...                        # S3 credentials
+AWS_SECRET_ACCESS_KEY=...
+AWS_ENDPOINT=http://minio:9000              # Custom endpoint (MinIO, etc.)
+AWS_REGION=us-east-1
+AWS_S3_FORCE_PATH_STYLE=true               # Required for MinIO
+WALG_BACKUP_INTERVAL=3600                   # Base backup interval (seconds)
+WALG_BACKUP_RETENTION_DAYS=7                # Retention period
+```
+
+Non-sensitive settings (interval, retention, path style) are also stored in the `system_config` table and configurable via the S3 Backups UI. S3 credentials stay in environment variables only.
+
+### Supported Providers
+
+- **AWS S3** — Default. Set `AWS_ENDPOINT` to empty.
+- **MinIO** — Set `AWS_ENDPOINT=http://minio:9000` and `AWS_S3_FORCE_PATH_STYLE=true`.
+- **SeaweedFS** — Same as MinIO configuration.
+- **Any S3-compatible storage** — Set the endpoint and path style as needed.

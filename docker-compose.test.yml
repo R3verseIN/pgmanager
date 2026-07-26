@@ -1,7 +1,137 @@
-# Test-only override: exposes DB port for local Go tests.
-# Usage: docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db
-# NEVER use this in production.
+# docker-compose.test.yml — Full WAL-G integration test stack
+#
+# Spins up MinIO (S3), PostgreSQL with WAL archiving, the pgmanager app,
+# PgBouncer, and a socat port bridge for local Go test connectivity.
+#
+# Usage:
+#   ./scripts/test-walg.sh                    # run tests, tear down after
+#   ./scripts/test-walg.sh --keep             # run tests, keep stack running
+#   docker compose -f docker-compose.test.yml up -d --build  # manual
+#
+# NEVER use this in production. Test credentials only.
+
 services:
+  # ── MinIO (S3-compatible storage) ──────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    command: server /data --address ":9000" --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9001:9000"
+      - "9002:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # ── Bucket provisioner (runs once, then exits) ────────────────────
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 minioadmin minioadmin
+        mc mb --ignore-existing local/pgmanager-test
+        echo "minio-init: bucket 'pgmanager-test' ready"
+
+  # ── PostgreSQL with WAL-G ─────────────────────────────────────────
   db:
+    build:
+      context: .
+      dockerfile: Dockerfile.db
+      args:
+        TARGETARCH: ${TARGETARCH:-amd64}
+    environment:
+      POSTGRES_USER: pgmanager
+      POSTGRES_DB: pgmanager
+      POSTGRES_PASSWORD: pgmanager
+      PGBOUNCER_AUTH_PASSWORD: pgmanager
+      # WAL-G archiving config (used by init script's archive_command)
+      WALG_S3_PREFIX: s3://pgmanager-test
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_ENDPOINT: http://minio:9000
+      AWS_REGION: us-east-1
+      AWS_S3_FORCE_PATH_STYLE: "true"
+      # Archive every 10s so tests don't wait long
+      WALG_ARCHIVE_TIMEOUT: "10"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pgmanager -d pgmanager"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+
+  # ── pgmanager app (Go backend + React UI) ─────────────────────────
+  app:
+    build:
+      context: .
+      args:
+        TARGETARCH: ${TARGETARCH:-amd64}
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://pgmanager:pgmanager@db:5432/pgmanager?sslmode=disable
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: pgmanager
+      PGDATABASE: pgmanager
+      PGSSLMODE: disable
+      PGBOUNCER_AUTH_PASSWORD: pgmanager
+      # WAL-G credentials for CLI commands (backup-push, backup-fetch, etc.)
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_ENDPOINT: http://minio:9000
+      AWS_REGION: us-east-1
+      AWS_S3_FORCE_PATH_STYLE: "true"
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - pgbouncer_shared:/etc/pgbouncer/shared
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── PgBouncer (connection pooler) ─────────────────────────────────
+  pgbouncer:
+    build:
+      context: .
+      dockerfile: Dockerfile.pgbouncer
+    ports:
+      - "5432:6432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data:ro
+      - pgbouncer_shared:/etc/pgbouncer/shared
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── socat bridge: exposes db:5432 on host port 5433 ──────────────
+  #    Go integration tests connect here for direct DB queries.
+  db-test-port:
+    image: alpine:3.21
+    command: >
+      sh -c "apk add --no-cache socat &&
+             socat TCP-LISTEN:5432,fork,reuseaddr TCP:db:5432"
     ports:
       - "5433:5432"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  pgbouncer_shared:

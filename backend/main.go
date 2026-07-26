@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -61,6 +62,7 @@ func main() {
 	h := handler.NewWithDSN(pool, buildBaseDSN())
 	ah := handler.NewAuthHandler(pool)
 	sh := handler.NewSettingsHandler(pool)
+	wh := handler.NewWalgHandler(pool)
 
 	if err := h.InitUserSchema(ctx); err != nil {
 		log.Printf("warning: failed to init user schema: %v", err)
@@ -78,6 +80,25 @@ func main() {
 	}()
 
 	go startAuditLogRetention(ctx, pool)
+
+	// WAL-G scheduled base backup goroutine
+	go func() {
+		// Wait 5 minutes after startup before first scheduled backup
+		select {
+		case <-time.After(5 * time.Minute):
+		case <-ctx.Done():
+			return
+		}
+
+		// Start ticker with interval from system_config (re-reads on each cycle)
+		for {
+			intervalSec := wh.GetScheduledBackupInterval()
+			ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
+			<-ticker.C
+			ticker.Stop()
+			wh.RunScheduledBackup()
+		}
+	}()
 
 	mux := http.NewServeMux()
 
@@ -294,6 +315,44 @@ func main() {
 			return
 		}
 
+		// WAL-G S3 backup routes (admin only)
+		if path == "/api/walg/status" {
+			wh.GetStatus(w, r)
+			return
+		}
+		if method == "GET" && path == "/api/walg/config" {
+			wh.GetConfig(w, r)
+			return
+		}
+		if method == "PUT" && path == "/api/walg/config" {
+			wh.UpdateConfig(w, r)
+			return
+		}
+		if method == "GET" && path == "/api/walg/backups" {
+			wh.ListBackups(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/walg/backup" {
+			wh.TriggerBackup(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/walg/restore" {
+			wh.RestoreBackup(w, r)
+			return
+		}
+		if method == "DELETE" && strings.HasPrefix(path, "/api/walg/backup/") {
+			wh.DeleteBackup(w, r)
+			return
+		}
+		if method == "POST" && path == "/api/walg/verify" {
+			wh.VerifyIntegrity(w, r)
+			return
+		}
+		if method == "DELETE" && path == "/api/walg/garbage" {
+			wh.CleanGarbage(w, r)
+			return
+		}
+
 		http.NotFound(w, r)
 	})))
 
@@ -372,6 +431,28 @@ func buildDatabaseURL() string {
 }
 
 func buildBaseDSN() string {
+	// If DATABASE_URL is set, extract credentials from it directly.
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		if u, err := url.Parse(dbURL); err == nil && u.User != nil {
+			user := u.User.Username()
+			password, _ := u.User.Password()
+			host := u.Hostname()
+			port := u.Port()
+			if port == "" {
+				port = "5432"
+			}
+			dbname := strings.TrimPrefix(u.Path, "/")
+			if dbname == "" {
+				dbname = "pgmanager"
+			}
+			sslmode := u.Query().Get("sslmode")
+			if sslmode == "" {
+				sslmode = "disable"
+			}
+			return fmt.Sprintf("postgres://%s:%s@%s:%s/?sslmode=%s", user, password, host, port, sslmode)
+		}
+	}
+
 	secretPath := os.Getenv("SECRET_PATH")
 	if secretPath == "" {
 		secretPath = "/secrets/pgmanager-password"

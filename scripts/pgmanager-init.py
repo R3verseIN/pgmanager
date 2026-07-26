@@ -131,18 +131,49 @@ GRANT EXECUTE ON FUNCTION public.pgbouncer_get_user(TEXT) TO pgbouncer_auth;
 
 
 def ensure_hba_rules() -> None:
+    """Replace the default PG17 catch-all scram-sha-256 line with per-user rules.
+
+    PostgreSQL 17's default pg_hba.conf includes:
+        host all all all scram-sha-256
+
+    This allows ANY user from ANY IP to connect with a password. We replace it
+    with scoped rules that only allow:
+      - pgmanager (superuser) — scram-sha-256 from Docker networks
+      - pgbouncer_auth — trust from Docker networks (PgBouncer auth-query pattern)
+      - Everything else — rejected
+
+    The marker comment "# pgmanager-init: managed" is checked on subsequent
+    runs to avoid re-replacing already-applied rules. On first start, the
+    regex matches the default catch-all line and substitutes our rules.
+
+    This file is for PostgreSQL's pg_hba.conf. PgBouncer's rules are managed
+    separately by RebuildPgBouncerHBA() in the Go app.
+    """
     print("pgmanager-init: ensuring HBA rules...")
     hba_file = DATA_DIR / "pg_hba.conf"
     content = hba_file.read_text()
 
-    # Only replace if the old catch-all scram-sha-256 line still exists
-    if "scram-sha-256" in content and "reject" not in content.split("scram-sha-256")[0].split("\n")[-2]:
+    # Use marker to detect if rules have already been applied
+    if "# pgmanager-init: managed" in content:
+        print("pgmanager-init: HBA rules already configured")
+        return
+
+    # Replace the default catch-all scram-sha-256 line with per-user rules
+    if "scram-sha-256" in content:
         new_rules = (
-            "# Internal Docker network (trust - isolated network)\n"
-            "host all all 172.16.0.0/12 trust\n"
-            "host all all 192.168.0.0/16 trust\n"
-            "host all all 10.0.0.0/8 trust\n"
-            "# External connections rejected (must go through PgBouncer)\n"
+            "# pgmanager-init: managed (scram-sha-256 auth)\n"
+            "host all pgmanager 172.16.0.0/12 scram-sha-256\n"
+            "host all pgmanager 192.168.0.0/16 scram-sha-256\n"
+            "host all pgmanager 10.0.0.0/8 scram-sha-256\n"
+            "# Replication from Docker networks\n"
+            "host replication pgmanager 172.16.0.0/12 scram-sha-256\n"
+            "host replication pgmanager 192.168.0.0/16 scram-sha-256\n"
+            "host replication pgmanager 10.0.0.0/8 scram-sha-256\n"
+            "# PgBouncer auth (trust - standard pattern)\n"
+            "host all pgbouncer_auth 172.16.0.0/12 trust\n"
+            "host all pgbouncer_auth 192.168.0.0/16 trust\n"
+            "host all pgbouncer_auth 10.0.0.0/8 trust\n"
+            "# External connections rejected\n"
             "host all all 0.0.0.0/0 reject\n"
             "host all all ::0/0 reject\n"
         )
@@ -154,7 +185,7 @@ def ensure_hba_rules() -> None:
         hba_file.write_text(content)
         print("pgmanager-init: HBA rules updated")
     else:
-        print("pgmanager-init: HBA rules already configured")
+        print("pgmanager-init: no scram-sha-256 catch-all found, rules may need manual setup")
 
 
 def revoke_system_db_connect() -> None:
@@ -162,6 +193,27 @@ def revoke_system_db_connect() -> None:
     run_sql("REVOKE CONNECT ON DATABASE postgres FROM PUBLIC", dbname="postgres")
     run_sql("REVOKE CONNECT ON DATABASE template1 FROM PUBLIC", dbname="template1")
     print("pgmanager-init: system database CONNECT revoked from PUBLIC")
+
+
+def configure_wal_archiving() -> None:
+    """Configure PostgreSQL WAL archiving for WAL-G if WALG_S3_PREFIX is set."""
+    s3_prefix = os.environ.get("WALG_S3_PREFIX", "")
+    if not s3_prefix:
+        print("pgmanager-init: WALG_S3_PREFIX not set, skipping WAL archiving config")
+        return
+
+    print("pgmanager-init: configuring WAL archiving for WAL-G...")
+    archive_timeout = os.environ.get("WALG_ARCHIVE_TIMEOUT", "300")
+
+    settings = {
+        "wal_level": "replica",
+        "archive_mode": "on",
+        "archive_command": "wal-g wal-push %p",
+        "archive_timeout": archive_timeout,
+    }
+    for key, value in settings.items():
+        run_sql(f"ALTER SYSTEM SET {key} = '{value}';")
+    print(f"pgmanager-init: WAL archiving configured (timeout={archive_timeout}s)")
 
 
 def main() -> int:
@@ -185,6 +237,7 @@ def main() -> int:
         ensure_pgbouncer_auth(auth_pass)
         ensure_hba_rules()
         revoke_system_db_connect()
+        configure_wal_archiving()
         print("pgmanager-init: all checks passed")
     except Exception as e:
         print(f"pgmanager-init: ERROR: {e}", file=sys.stderr)

@@ -3,11 +3,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.db
+      args:
+        TARGETARCH: ${TARGETARCH:-amd64}
     environment:
       POSTGRES_USER: pgmanager
       POSTGRES_DB: pgmanager
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       PGBOUNCER_AUTH_PASSWORD: ${PGBOUNCER_AUTH_PASSWORD:?PGBOUNCER_AUTH_PASSWORD is required}
+      WALG_S3_PREFIX: ${WALG_S3_PREFIX:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_ENDPOINT: ${AWS_ENDPOINT:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-false}
+      WALG_ARCHIVE_TIMEOUT: ${WALG_ARCHIVE_TIMEOUT:-300}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +27,10 @@ services:
       start_period: 15s
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        TARGETARCH: ${TARGETARCH:-amd64}
     ports:
       - "8080:8080"
     environment:
@@ -29,6 +41,11 @@ services:
       PGDATABASE: pgmanager
       PGSSLMODE: disable
       PGBOUNCER_AUTH_PASSWORD: /var/lib/postgresql/data/pgbouncer-auth-password
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_ENDPOINT: ${AWS_ENDPOINT:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-false}
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
       - pgbouncer_shared:/etc/pgbouncer/shared

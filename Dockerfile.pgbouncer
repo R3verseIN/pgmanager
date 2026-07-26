@@ -1,7 +1,17 @@
 FROM edoburu/pgbouncer
 COPY pgbouncer.ini /etc/pgbouncer/pgbouncer.ini
 COPY --chmod=755 scripts/pgbouncer-entrypoint.sh /usr/local/bin/pgbouncer-entrypoint.sh
+# Bootstrap PgBouncer HBA rules. These are minimal rules that allow the
+# Go app to connect on first startup before it regenerates the full
+# per-user rules via RebuildPgBouncerHBA(). The Go app overwrites this
+# file on every startup and every 5 minutes.
+#
+# Auth methods:
+#   pgbouncer_auth — trust (PgBouncer connects as this user to look up
+#     password hashes from PostgreSQL; SELECT-only on pgbouncer_get_user())
+#   pgmanager — scram-sha-256 (app superuser; matches PostgreSQL's pg_hba.conf)
+#   catch-all — reject (blocks unmatched connections)
 RUN mkdir -p /etc/pgbouncer/shared && \
-    printf '# Initial rules for internal Docker communication\n# Go app will overwrite with full per-user rules on startup\nhost all pgbouncer_auth 172.16.0.0/12 trust\nhost all pgbouncer_auth 192.168.0.0/16 trust\nhost all pgbouncer_auth 10.0.0.0/8 trust\nhost all pgmanager 172.16.0.0/12 trust\nhost all pgmanager 192.168.0.0/16 trust\nhost all pgmanager 10.0.0.0/8 trust\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n' > /etc/pgbouncer/shared/pg_hba.conf
+    printf '# Bootstrap rules (Go app overwrites on startup)\nhost all pgbouncer_auth 172.16.0.0/12 trust\nhost all pgbouncer_auth 192.168.0.0/16 trust\nhost all pgbouncer_auth 10.0.0.0/8 trust\nhost all pgmanager 172.16.0.0/12 scram-sha-256\nhost all pgmanager 192.168.0.0/16 scram-sha-256\nhost all pgmanager 10.0.0.0/8 scram-sha-256\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n' > /etc/pgbouncer/shared/pg_hba.conf
 ENTRYPOINT ["/usr/local/bin/pgbouncer-entrypoint.sh"]
 CMD ["pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]

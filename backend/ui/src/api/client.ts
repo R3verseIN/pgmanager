@@ -63,3 +63,20 @@ export type {
   BackupRestoreResult,
 } from "./backup";
 export { fetchSettings, updateSettings } from "./settings";
+export {
+  fetchWalgStatus,
+  fetchWalgConfig,
+  updateWalgConfig,
+  fetchWalgBackups,
+  triggerWalgBackup,
+  restoreWalgBackup,
+  deleteWalgBackup,
+  verifyWalgIntegrity,
+  cleanWalgGarbage,
+} from "./walg";
+export type {
+  WalgStatus,
+  WalgBackup,
+  WalgConfig,
+  WalgVerifyResult,
+} from "./walg";

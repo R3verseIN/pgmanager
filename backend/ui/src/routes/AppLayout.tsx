@@ -12,6 +12,7 @@ import Logs from "./Logs";
 import Profile from "./Profile";
 import Settings from "./Settings";
 import Backups from "./Backups";
+import WalgBackups from "./WalgBackups";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -24,7 +25,9 @@ export default function AppLayout() {
           ? "settings"
           : location.pathname === "/backups"
             ? "backups"
-            : "databases";
+            : location.pathname === "/walg"
+              ? "walg"
+              : "databases";
   const { user } = useAuth();
 
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -81,6 +84,10 @@ export default function AppLayout() {
           <Route
             path="/backups"
             element={user?.role === "admin" || user?.role === "dev" ? <Backups /> : <Navigate to="/" />}
+          />
+          <Route
+            path="/walg"
+            element={user?.role === "admin" ? <WalgBackups /> : <Navigate to="/" />}
           />
         </Routes>
       </main>

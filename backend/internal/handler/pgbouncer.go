@@ -118,6 +118,22 @@ func (h *Handler) TogglePgBouncerDatabase(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, pgbouncerDatabase{DatabaseName: name, Allowed: req.Allowed})
 }
 
+// RebuildPgBouncerHBA regenerates the PgBouncer pg_hba.conf file with
+// per-user authentication rules. It is called on app startup and periodically
+// (every 5 minutes) to stay in sync with the managed_users table.
+//
+// The generated HBA rules follow this order:
+//  1. pgbouncer_auth — trust (PgBouncer connects as this user to look up
+//     password hashes via auth_query; SELECT-only on pgbouncer_get_user())
+//  2. pgmanager — scram-sha-256 (app superuser; requires password auth
+//     for consistency with PostgreSQL's pg_hba.conf)
+//  3. Per-user rules from managed_users table — scram-sha-256 with IPs
+//     from the allowed_ips JSONB column; users with empty allowed_ips
+//     get a reject-all rule
+//  4. Catch-all reject — blocks any connection not matched above
+//
+// The file is written to /etc/pgbouncer/shared/pg_hba.conf (shared volume)
+// and PgBouncer is reloaded via its admin console.
 func (h *Handler) RebuildPgBouncerHBA() {
 	ctx := context.Background()
 
@@ -140,9 +156,9 @@ func (h *Handler) RebuildPgBouncerHBA() {
 	lines = append(lines, "host all pgbouncer_auth 192.168.0.0/16 trust")
 	lines = append(lines, "host all pgbouncer_auth 10.0.0.0/8 trust")
 
-	lines = append(lines, "host all pgmanager 172.16.0.0/12 trust")
-	lines = append(lines, "host all pgmanager 192.168.0.0/16 trust")
-	lines = append(lines, "host all pgmanager 10.0.0.0/8 trust")
+	lines = append(lines, "host all pgmanager 172.16.0.0/12 scram-sha-256")
+	lines = append(lines, "host all pgmanager 192.168.0.0/16 scram-sha-256")
+	lines = append(lines, "host all pgmanager 10.0.0.0/8 scram-sha-256")
 
 	for rows.Next() {
 		var username string
