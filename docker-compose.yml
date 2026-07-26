@@ -17,6 +17,8 @@ services:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-false}
       WALG_ARCHIVE_TIMEOUT: ${WALG_ARCHIVE_TIMEOUT:-300}
+      WALG_BACKUP_INTERVAL: ${WALG_BACKUP_INTERVAL:-3600}
+      WALG_BACKUP_RETENTION_DAYS: ${WALG_BACKUP_RETENTION_DAYS:-7}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -47,6 +49,9 @@ services:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-false}
       WALG_S3_PREFIX: ${WALG_S3_PREFIX:-}
+      WALG_ARCHIVE_TIMEOUT: ${WALG_ARCHIVE_TIMEOUT:-300}
+      WALG_BACKUP_INTERVAL: ${WALG_BACKUP_INTERVAL:-3600}
+      WALG_BACKUP_RETENTION_DAYS: ${WALG_BACKUP_RETENTION_DAYS:-7}
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
       - pgbouncer_shared:/etc/pgbouncer/shared
