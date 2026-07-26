@@ -10,6 +10,8 @@ export interface WalgStatus {
   totalSize: number;
   intervalSec: number;
   retentionDays: number;
+  errors?: string[];
+  warnings?: string[];
 }
 
 export interface WalgBackup {
@@ -20,15 +22,6 @@ export interface WalgBackup {
   status: string;
 }
 
-export interface WalgConfig {
-  s3Prefix: string;
-  endpoint: string;
-  region: string;
-  forcePathStyle: string;
-  interval: string;
-  retentionDays: string;
-}
-
 export interface WalgVerifyResult {
   status: string;
   details: string;
@@ -36,24 +29,6 @@ export interface WalgVerifyResult {
 
 export async function fetchWalgStatus(): Promise<WalgStatus> {
   return request<WalgStatus>("/walg/status");
-}
-
-export async function fetchWalgConfig(): Promise<WalgConfig> {
-  return request<WalgConfig>("/walg/config");
-}
-
-export async function updateWalgConfig(config: {
-  s3Prefix: string;
-  endpoint?: string;
-  region?: string;
-  forcePathStyle?: boolean;
-  interval?: number;
-  retentionDays?: number;
-}): Promise<{ status: string; message: string }> {
-  return request("/walg/config", {
-    method: "PUT",
-    body: JSON.stringify(config),
-  });
 }
 
 export async function fetchWalgBackups(): Promise<WalgBackup[]> {

@@ -42,15 +42,17 @@ func (wh *WalgHandler) writeAuditLog(ctx context.Context, entry auditEntry) {
 }
 
 type walgStatusResponse struct {
-	Enabled       bool   `json:"enabled"`
-	Archiving     bool   `json:"archiving"`
-	Configured    bool   `json:"configured"`
-	S3Prefix      string `json:"s3Prefix"`
-	LastBackup    string `json:"lastBackup,omitempty"`
-	BackupCount   int    `json:"backupCount"`
-	TotalSize     int64  `json:"totalSize"`
-	IntervalSec   int    `json:"intervalSec"`
-	RetentionDays int    `json:"retentionDays"`
+	Enabled       bool     `json:"enabled"`
+	Archiving     bool     `json:"archiving"`
+	Configured    bool     `json:"configured"`
+	S3Prefix      string   `json:"s3Prefix"`
+	LastBackup    string   `json:"lastBackup,omitempty"`
+	BackupCount   int      `json:"backupCount"`
+	TotalSize     int64    `json:"totalSize"`
+	IntervalSec   int      `json:"intervalSec"`
+	RetentionDays int      `json:"retentionDays"`
+	Errors        []string `json:"errors,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
 }
 
 type walgBackupEntry struct {
@@ -59,15 +61,6 @@ type walgBackupEntry struct {
 	WalSegment string `json:"walSegment"`
 	Size       int64  `json:"size"`
 	Status     string `json:"status"`
-}
-
-type walgConfigRequest struct {
-	S3Prefix      string `json:"s3Prefix"`
-	Endpoint      string `json:"endpoint,omitempty"`
-	Region        string `json:"region,omitempty"`
-	ForcePathStyle *bool `json:"forcePathStyle,omitempty"`
-	Interval      *int   `json:"interval,omitempty"`
-	RetentionDays *int   `json:"retentionDays,omitempty"`
 }
 
 type walgRestoreRequest struct {
@@ -80,8 +73,8 @@ type walgVerifyResponse struct {
 	Details string `json:"details"`
 }
 
-// walgConfig holds all WAL-G settings, read from system_config with env var fallbacks.
-type walgConfig struct {
+// walgEnvConfig holds WAL-G settings read from environment variables.
+type walgEnvConfig struct {
 	S3Prefix       string
 	Endpoint       string
 	Region         string
@@ -90,100 +83,47 @@ type walgConfig struct {
 	RetentionDays  int
 }
 
-// getConfigFromDB reads WAL-G settings from system_config table, falling back to env vars.
-func (wh *WalgHandler) getConfigFromDB() walgConfig {
-	ctx := context.Background()
-	cfg := walgConfig{
-		Interval:      3600,
-		RetentionDays: 7,
-		Region:        "us-east-1",
+// getWalgConfigFromEnv reads all WAL-G settings from environment variables.
+func getWalgConfigFromEnv() walgEnvConfig {
+	return walgEnvConfig{
+		S3Prefix:       os.Getenv("WALG_S3_PREFIX"),
+		Endpoint:       os.Getenv("AWS_ENDPOINT"),
+		Region:         envOr("AWS_REGION", "us-east-1"),
+		ForcePathStyle: os.Getenv("AWS_S3_FORCE_PATH_STYLE") == "true",
+		Interval:       envIntOr("WALG_BACKUP_INTERVAL", 3600),
+		RetentionDays:  envIntOr("WALG_BACKUP_RETENTION_DAYS", 7),
 	}
+}
 
-	rows, err := wh.pool.Query(ctx,
-		`SELECT key, value FROM system_config WHERE key LIKE 'walg_%'`)
-	if err != nil {
-		log.Printf("walg: failed to read config from DB: %v", err)
-		// Fall back to env vars
-		cfg.S3Prefix = os.Getenv("WALG_S3_PREFIX")
-		cfg.Endpoint = os.Getenv("AWS_ENDPOINT")
-		cfg.Region = envOr("AWS_REGION", "us-east-1")
-		cfg.ForcePathStyle = os.Getenv("AWS_S3_FORCE_PATH_STYLE") == "true"
-		if v := os.Getenv("WALG_BACKUP_INTERVAL"); v != "" {
-			fmt.Sscanf(v, "%d", &cfg.Interval)
-		}
-		if v := os.Getenv("WALG_BACKUP_RETENTION_DAYS"); v != "" {
-			fmt.Sscanf(v, "%d", &cfg.RetentionDays)
-		}
-		return cfg
+// validateWalgConfig checks for missing or misconfigured env vars and returns issues.
+func validateWalgConfig() []string {
+	var issues []string
+	if os.Getenv("WALG_S3_PREFIX") == "" {
+		issues = append(issues, "WALG_S3_PREFIX is not set — required to enable WAL-G backups")
 	}
-	defer rows.Close()
-
-	dbValues := make(map[string]string)
-	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
-			continue
-		}
-		dbValues[key] = value
+	if os.Getenv("AWS_ACCESS_KEY_ID") == "" {
+		issues = append(issues, "AWS_ACCESS_KEY_ID is not set — required for S3 authentication")
 	}
-
-	// DB values take precedence, env vars are fallbacks
-	cfg.S3Prefix = orFallback(dbValues["walg_s3_prefix"], os.Getenv("WALG_S3_PREFIX"))
-	cfg.Endpoint = orFallback(dbValues["walg_endpoint"], os.Getenv("AWS_ENDPOINT"))
-	cfg.Region = orFallback(dbValues["walg_region"], os.Getenv("AWS_REGION"))
-	if v, ok := dbValues["walg_force_path_style"]; ok {
-		cfg.ForcePathStyle = v == "true"
-	} else {
-		cfg.ForcePathStyle = os.Getenv("AWS_S3_FORCE_PATH_STYLE") == "true"
+	if os.Getenv("AWS_SECRET_ACCESS_KEY") == "" {
+		issues = append(issues, "AWS_SECRET_ACCESS_KEY is not set — required for S3 authentication")
 	}
-	if v, ok := dbValues["walg_backup_interval"]; ok {
-		if i, err := strconv.Atoi(v); err == nil {
-			cfg.Interval = i
-		}
-	} else if v := os.Getenv("WALG_BACKUP_INTERVAL"); v != "" {
-		fmt.Sscanf(v, "%d", &cfg.Interval)
-	}
-	if v, ok := dbValues["walg_backup_retention_days"]; ok {
-		if i, err := strconv.Atoi(v); err == nil {
-			cfg.RetentionDays = i
-		}
-	} else if v := os.Getenv("WALG_BACKUP_RETENTION_DAYS"); v != "" {
-		fmt.Sscanf(v, "%d", &cfg.RetentionDays)
-	}
-
-	return cfg
+	return issues
 }
 
 func (wh *WalgHandler) isConfigured() bool {
-	cfg := wh.getConfigFromDB()
-	return cfg.S3Prefix != ""
+	return os.Getenv("WALG_S3_PREFIX") != ""
 }
 
-// walgEnv builds the environment variables for WAL-G CLI commands. It starts
-// with the current process environment and overlays AWS/S3 credentials from
-// the database config (system_config table). If PGPASSWORD is not already set,
-// it reads the PostgreSQL password so WAL-G can authenticate (e.g. for
-// backup-push which calls pg_start_backup/pg_stop_backup).
+// walgEnv returns environment variables for WAL-G CLI commands.
+// Uses os.Environ() as-is (env vars are the single source of truth).
+// Injects PGPASSWORD if not already set.
 func (wh *WalgHandler) walgEnv() []string {
-	cfg := wh.getConfigFromDB()
 	env := os.Environ()
-
-	// Override/add WAL-G settings from DB config
-	env = appendEnvIfNotSet(env, "WALG_S3_PREFIX", cfg.S3Prefix)
-	env = appendEnvIfNotSet(env, "AWS_ENDPOINT", cfg.Endpoint)
-	env = appendEnvIfNotSet(env, "AWS_REGION", cfg.Region)
-	if cfg.ForcePathStyle {
-		env = appendEnvIfNotSet(env, "AWS_S3_FORCE_PATH_STYLE", "true")
-	}
-
-	// WAL-G needs PGPASSWORD to authenticate with PostgreSQL (e.g. backup-push).
-	// Read from SECRET_PATH or fall back to extracting from DATABASE_URL.
 	if _, hasPwd := envLookup(env, "PGPASSWORD"); !hasPwd {
 		if pwd := wh.readPgPassword(); pwd != "" {
 			env = append(env, "PGPASSWORD="+pwd)
 		}
 	}
-
 	return env
 }
 
@@ -227,19 +167,6 @@ func envLookup(env []string, key string) (string, bool) {
 	return "", false
 }
 
-func appendEnvIfNotSet(env []string, key, value string) []string {
-	if value == "" {
-		return env
-	}
-	prefix := key + "="
-	for _, e := range env {
-		if strings.HasPrefix(e, prefix) {
-			return env // already set
-		}
-	}
-	return append(env, key+"="+value)
-}
-
 func (wh *WalgHandler) runWalg(ctx context.Context, args []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "wal-g", args...)
 	cmd.Env = wh.walgEnv()
@@ -257,11 +184,14 @@ func (wh *WalgHandler) runWalg(ctx context.Context, args []string) ([]byte, erro
 
 // GET /api/walg/status
 func (wh *WalgHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
-	cfg := wh.getConfigFromDB()
+	cfg := getWalgConfigFromEnv()
+	issues := validateWalgConfig()
+
 	if cfg.S3Prefix == "" {
 		writeJSON(w, http.StatusOK, walgStatusResponse{
 			Enabled:    false,
 			Configured: false,
+			Errors:     issues,
 		})
 		return
 	}
@@ -273,6 +203,7 @@ func (wh *WalgHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		S3Prefix:      cfg.S3Prefix,
 		IntervalSec:   cfg.Interval,
 		RetentionDays: cfg.RetentionDays,
+		Errors:        issues,
 	}
 
 	// Check if archiving is active by querying PostgreSQL
@@ -297,101 +228,6 @@ func (wh *WalgHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
-}
-
-// GET /api/walg/config
-func (wh *WalgHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
-	cfg := wh.getConfigFromDB()
-	if cfg.S3Prefix == "" {
-		writeJSON(w, http.StatusOK, map[string]string{})
-		return
-	}
-
-	config := map[string]string{
-		"s3Prefix":      cfg.S3Prefix,
-		"endpoint":      cfg.Endpoint,
-		"region":        cfg.Region,
-		"forcePathStyle": strconv.FormatBool(cfg.ForcePathStyle),
-		"interval":      strconv.Itoa(cfg.Interval),
-		"retentionDays": strconv.Itoa(cfg.RetentionDays),
-	}
-
-	writeJSON(w, http.StatusOK, config)
-}
-
-// PUT /api/walg/config
-func (wh *WalgHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
-	var req walgConfigRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-
-	if req.S3Prefix == "" {
-		writeError(w, http.StatusBadRequest, "s3Prefix is required")
-		return
-	}
-
-	ctx := r.Context()
-	settings := map[string]string{
-		"walg_s3_prefix": req.S3Prefix,
-	}
-	if req.Endpoint != "" {
-		settings["walg_endpoint"] = req.Endpoint
-	} else {
-		settings["walg_endpoint"] = ""
-	}
-	if req.Region != "" {
-		settings["walg_region"] = req.Region
-	} else {
-		settings["walg_region"] = "us-east-1"
-	}
-	if req.ForcePathStyle != nil {
-		settings["walg_force_path_style"] = strconv.FormatBool(*req.ForcePathStyle)
-	}
-	if req.Interval != nil {
-		settings["walg_backup_interval"] = strconv.Itoa(*req.Interval)
-	}
-	if req.RetentionDays != nil {
-		settings["walg_backup_retention_days"] = strconv.Itoa(*req.RetentionDays)
-	}
-
-	for key, value := range settings {
-		_, err := wh.pool.Exec(ctx,
-			`INSERT INTO system_config (key, value) VALUES ($1, $2)
-			 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-			key, value)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to save setting: "+key)
-			return
-		}
-	}
-
-	// Update PostgreSQL archive_command with new S3 prefix
-	archiveCmd := fmt.Sprintf("wal-g wal-push %%p")
-	_, err := wh.pool.Exec(ctx, fmt.Sprintf("ALTER SYSTEM SET archive_command = '%s';", archiveCmd))
-	if err != nil {
-		log.Printf("walg: failed to update archive_command: %v", err)
-	}
-	// Reload PostgreSQL config
-	_, err = wh.pool.Exec(ctx, "SELECT pg_reload_conf()")
-	if err != nil {
-		log.Printf("walg: failed to reload PostgreSQL config: %v", err)
-	}
-
-	user := auth.GetUserFromContext(r.Context())
-	username := ""
-	if user != nil {
-		username = user.Username
-	}
-	wh.writeAuditLog(ctx, auditEntry{
-		Username:  username,
-		Action:    "walg_config_update",
-		IPAddress: clientIP(r),
-		Detail:    map[string]interface{}{"s3Prefix": req.S3Prefix},
-	})
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "saved", "message": "Configuration saved"})
 }
 
 // GET /api/walg/backups
@@ -900,12 +736,21 @@ func (wh *WalgHandler) CleanGarbage(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/walg/test-connection
 func (wh *WalgHandler) TestConnection(w http.ResponseWriter, r *http.Request) {
-	cfg := wh.getConfigFromDB()
-	if cfg.S3Prefix == "" {
-		writeError(w, http.StatusBadRequest, "WAL-G is not configured. Set S3 bucket path first.")
+	if !wh.isConfigured() {
+		writeError(w, http.StatusBadRequest, "WAL-G is not configured. Set WALG_S3_PREFIX environment variable.")
 		return
 	}
 
+	issues := validateWalgConfig()
+	if len(issues) > 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"status": "error",
+			"errors": issues,
+		})
+		return
+	}
+
+	cfg := getWalgConfigFromEnv()
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -913,7 +758,10 @@ func (wh *WalgHandler) TestConnection(w http.ResponseWriter, r *http.Request) {
 	_, err := wh.listBackups(ctx)
 	if err != nil {
 		errMsg := sanitizeRedact(err.Error())
-		writeError(w, http.StatusInternalServerError, "connection failed: "+errMsg)
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"status": "error",
+			"errors": []string{"S3 connection failed: " + errMsg},
+		})
 		return
 	}
 
@@ -970,13 +818,13 @@ func (wh *WalgHandler) getPgCredentials() (host, port, user, password string) {
 	return
 }
 
-// GetScheduledBackupInterval returns the backup interval from system_config (or env fallback).
+// GetScheduledBackupInterval returns the backup interval from environment variables.
 func (wh *WalgHandler) GetScheduledBackupInterval() int {
-	cfg := wh.getConfigFromDB()
-	if cfg.Interval < 60 {
+	interval := envIntOr("WALG_BACKUP_INTERVAL", 3600)
+	if interval < 60 {
 		return 60
 	}
-	return cfg.Interval
+	return interval
 }
 
 // RunScheduledBackup is called by the ticker in main.go
@@ -1016,9 +864,11 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func orFallback(dbVal, envVal string) string {
-	if dbVal != "" {
-		return dbVal
+func envIntOr(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
 	}
-	return envVal
+	return fallback
 }

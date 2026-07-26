@@ -1,20 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Cloud,
   Loader2,
-  Save,
   Trash2,
   Download,
   CheckCircle2,
   XCircle,
-  Settings,
+  AlertTriangle,
   Archive,
+  Terminal,
 } from "lucide-react";
 import {
   fetchWalgStatus,
-  fetchWalgConfig,
-  updateWalgConfig,
   fetchWalgBackups,
   triggerWalgBackup,
   deleteWalgBackup,
@@ -25,9 +23,6 @@ import {
 import type { WalgBackup } from "../api/client";
 import RestoreDialog from "../components/dialogs/RestoreDialog";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
-import { Switch } from "../components/ui/switch";
 import { toast } from "sonner";
 
 export default function WalgBackups() {
@@ -38,57 +33,11 @@ export default function WalgBackups() {
     queryFn: fetchWalgStatus,
   });
 
-  const { data: config, isLoading: configLoading } = useQuery({
-    queryKey: ["walg-config"],
-    queryFn: fetchWalgConfig,
-    enabled: status?.enabled ?? false,
-  });
-
   const { data: backups, isLoading: backupsLoading } = useQuery({
     queryKey: ["walg-backups"],
     queryFn: fetchWalgBackups,
     enabled: status?.enabled ?? false,
     refetchInterval: 30000,
-  });
-
-  // Config form state
-  const [s3Prefix, setS3Prefix] = useState("");
-  const [endpoint, setEndpoint] = useState("");
-  const [region, setRegion] = useState("us-east-1");
-  const [forcePathStyle, setForcePathStyle] = useState(false);
-  const [interval, setInterval] = useState(3600);
-  const [retentionDays, setRetentionDays] = useState(7);
-
-  useEffect(() => {
-    if (config) {
-      setS3Prefix(config.s3Prefix || "");
-      setEndpoint(config.endpoint || "");
-      setRegion(config.region || "us-east-1");
-      setForcePathStyle(config.forcePathStyle === "true");
-      if (config.interval) setInterval(parseInt(config.interval) || 3600);
-      if (config.retentionDays)
-        setRetentionDays(parseInt(config.retentionDays) || 7);
-    }
-  }, [config]);
-
-  const configMutation = useMutation({
-    mutationFn: () =>
-      updateWalgConfig({
-        s3Prefix,
-        ...((endpoint || undefined) && { endpoint }),
-        region,
-        forcePathStyle,
-        interval,
-        retentionDays,
-      }),
-    onSuccess: (data) => {
-      toast.success(data.message || "Configuration saved");
-      queryClient.invalidateQueries({ queryKey: ["walg-config"] });
-      queryClient.invalidateQueries({ queryKey: ["walg-status"] });
-    },
-    onError: (err: Error) => {
-      toast.error(err.message);
-    },
   });
 
   const backupMutation = useMutation({
@@ -170,6 +119,10 @@ export default function WalgBackups() {
     );
   }
 
+  const errors = status?.errors || [];
+  const warnings = status?.warnings || [];
+  const hasErrors = errors.length > 0;
+
   return (
     <div className="space-y-6">
       <div>
@@ -180,6 +133,51 @@ export default function WalgBackups() {
           Continuous WAL archiving and base backups to S3-compatible storage
         </p>
       </div>
+
+      {/* Diagnostics Panel — shown when env vars are missing/misconfigured */}
+      {hasErrors && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/30">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-500" />
+            <div className="flex-1">
+              <h2 className="text-sm font-medium text-red-700 dark:text-red-400">
+                WAL-G Not Configured
+              </h2>
+              <p className="mt-1 text-xs text-red-600/80 dark:text-red-400/70">
+                Set the following environment variables to enable S3 backups:
+              </p>
+              <div className="mt-3 rounded-md bg-red-100/50 p-3 dark:bg-red-900/30">
+                <code className="block whitespace-pre text-xs text-red-700 dark:text-red-300">
+{`environment:
+  WALG_S3_PREFIX: "s3://your-bucket/path"
+  AWS_ACCESS_KEY_ID: "your-key"
+  AWS_SECRET_ACCESS_KEY: "your-secret"
+${warnings.includes("AWS_ENDPOINT is not set") ? `  AWS_ENDPOINT: "https://<account-id>.r2.cloudflarestorage.com  # Cloudflare R2
+  AWS_REGION: "auto"  # Required for R2
+  AWS_S3_FORCE_PATH_STYLE: "true"  # Required for R2"` : warnings.includes("AWS_S3_FORCE_PATH_STYLE is not set") ? `  AWS_S3_FORCE_PATH_STYLE: "true"` : ""}`}
+                </code>
+              </div>
+              <ul className="mt-2 space-y-1 text-xs text-red-600/80 dark:text-red-400/70">
+                {errors.map((e, i) => (
+                  <li key={i} className="flex items-center gap-1">
+                    <XCircle className="size-3 shrink-0" />
+                    {e}
+                  </li>
+                ))}
+              </ul>
+              <a
+                href="https://github.com/R3verseIN/pgmanager/blob/main/docs/walg-s3-setup.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-xs text-red-600 underline hover:text-red-700 dark:text-red-400"
+              >
+                <Terminal className="size-3" />
+                Setup Guide
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status Banner */}
       {status?.enabled && (
@@ -199,13 +197,9 @@ export default function WalgBackups() {
                   )}
                   Archiving: {status.archiving ? "Active" : "Inactive"}
                 </span>
-                <span>
-                  Backups: {status.backupCount}
-                </span>
+                <span>Backups: {status.backupCount}</span>
                 {status.totalSize > 0 && (
-                  <span>
-                    Storage: {formatBytes(status.totalSize)}
-                  </span>
+                  <span>Storage: {formatBytes(status.totalSize)}</span>
                 )}
                 {status.lastBackup && (
                   <span>
@@ -243,144 +237,9 @@ export default function WalgBackups() {
                 )}
                 Verify
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* S3 Configuration */}
-      <div className="rounded-lg border border-hairline bg-surface-1 p-4">
-        <div className="mb-4 flex items-center gap-3">
-          <Settings className="size-5 text-ink-muted" />
-          <div>
-            <h2 className="text-sm font-medium text-foreground">
-              S3 Configuration
-            </h2>
-            <p className="text-xs text-ink-muted">
-              Configure S3-compatible storage for backups. Leave empty to disable
-              WAL-G.
-            </p>
-          </div>
-        </div>
-
-        {configLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="size-5 animate-spin text-ink-muted" />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label className="text-sm text-ink-muted">
-                S3 Bucket Path <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                value={s3Prefix}
-                onChange={(e) => setS3Prefix(e.target.value)}
-                placeholder="s3://my-bucket/pgmanager"
-                className="border-hairline bg-surface-2"
-              />
-              <p className="text-xs text-ink-muted">
-                Full S3 URI including bucket and optional path prefix
-              </p>
-            </div>
-
-            <div className="rounded-md bg-surface-2 p-3 text-xs text-ink-muted">
-              <p>
-                S3 credentials (<code className="text-foreground">AWS_ACCESS_KEY_ID</code>,{" "}
-                <code className="text-foreground">AWS_SECRET_ACCESS_KEY</code>) are
-                configured via environment variables. See the{" "}
-                <a
-                  href="https://github.com/R3verseIN/pgmanager/blob/main/docs/walg-s3-setup.md"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent-blue underline"
-                >
-                  setup guide
-                </a>{" "}
-                for provider-specific instructions.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="text-sm text-ink-muted">
-                  Endpoint URL
-                </Label>
-                <Input
-                  value={endpoint}
-                  onChange={(e) => setEndpoint(e.target.value)}
-                  placeholder="http://minio:9000 (leave empty for AWS S3)"
-                  className="border-hairline bg-surface-2"
-                />
-                <p className="text-xs text-ink-muted">
-                  Required for MinIO, SeaweedFS, or other S3-compatible storage
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm text-ink-muted">Region</Label>
-                <Input
-                  value={region}
-                  onChange={(e) => setRegion(e.target.value)}
-                  placeholder="us-east-1"
-                  className="border-hairline bg-surface-2"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={forcePathStyle}
-                onCheckedChange={setForcePathStyle}
-              />
-              <div>
-                <Label className="text-sm text-ink-muted">
-                  Force Path Style
-                </Label>
-                <p className="text-xs text-ink-muted">
-                  Required for MinIO and most S3-compatible storage
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="text-sm text-ink-muted">
-                  Backup Interval (seconds)
-                </Label>
-                <Input
-                  type="number"
-                  min={60}
-                  value={interval}
-                  onChange={(e) => setInterval(parseInt(e.target.value) || 3600)}
-                  className="border-hairline bg-surface-2"
-                />
-                <p className="text-xs text-ink-muted">
-                  How often to create base backups (default: 3600 = 1 hour)
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm text-ink-muted">
-                  Retention (days)
-                </Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={retentionDays}
-                  onChange={(e) =>
-                    setRetentionDays(parseInt(e.target.value) || 7)
-                  }
-                  className="border-hairline bg-surface-2"
-                />
-                <p className="text-xs text-ink-muted">
-                  Number of days to keep backups before automatic cleanup
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
               <Button
-                variant="outline"
                 size="sm"
+                variant="outline"
                 disabled={garbageMutation.isPending}
                 onClick={() => garbageMutation.mutate()}
               >
@@ -394,7 +253,7 @@ export default function WalgBackups() {
               <Button
                 size="sm"
                 variant="outline"
-                disabled={testConnectionMutation.isPending || !s3Prefix}
+                disabled={testConnectionMutation.isPending}
                 onClick={() => testConnectionMutation.mutate()}
               >
                 {testConnectionMutation.isPending ? (
@@ -404,22 +263,20 @@ export default function WalgBackups() {
                 )}
                 Test Connection
               </Button>
-              <Button
-                size="sm"
-                disabled={configMutation.isPending || !s3Prefix}
-                onClick={() => configMutation.mutate()}
-              >
-                {configMutation.isPending ? (
-                  <Loader2 className="mr-1 size-4 animate-spin" />
-                ) : (
-                  <Save className="mr-1 size-4" />
-                )}
-                Save Configuration
-              </Button>
             </div>
           </div>
-        )}
-      </div>
+          {warnings.length > 0 && (
+            <div className="mt-3 rounded-md bg-surface-2 p-2">
+              {warnings.map((w, i) => (
+                <p key={i} className="flex items-center gap-1 text-xs text-amber-600">
+                  <AlertTriangle className="size-3 shrink-0" />
+                  {w}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Backup List */}
       {status?.enabled && (
@@ -465,9 +322,7 @@ export default function WalgBackups() {
                 <tbody className="divide-y divide-hairline">
                   {backups.map((backup: WalgBackup) => (
                     <tr key={backup.name} className="group">
-                      <td className="py-2 font-mono text-xs">
-                        {backup.name}
-                      </td>
+                      <td className="py-2 font-mono text-xs">{backup.name}</td>
                       <td className="py-2 text-xs text-ink-muted">
                         {backup.time
                           ? new Date(backup.time).toLocaleString()
@@ -510,35 +365,6 @@ export default function WalgBackups() {
               </table>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Not Configured State */}
-      {!status?.enabled && (
-        <div className="rounded-lg border border-hairline bg-surface-1 p-8 text-center">
-          <Cloud className="mx-auto mb-3 size-10 text-ink-muted" />
-          <h2 className="text-sm font-medium text-foreground">
-            WAL-G Not Configured
-          </h2>
-          <p className="mt-1 text-xs text-ink-muted">
-            Configure S3 storage above to enable continuous WAL archiving and
-            automated base backups with point-in-time recovery.
-          </p>
-          <div className="mt-4 mx-auto max-w-md text-left rounded-md bg-surface-2 p-3 text-xs text-ink-muted">
-            <p className="font-medium text-foreground mb-1">How it works:</p>
-            <ul className="space-y-1 list-disc list-inside">
-              <li>
-                PostgreSQL continuously archives WAL segments to S3 (every 60s)
-              </li>
-              <li>Base backups are created at the configured interval</li>
-              <li>
-                Restore to any point in time using WAL-G point-in-time recovery
-              </li>
-              <li>
-                Works with AWS S3, MinIO, and any S3-compatible storage
-              </li>
-            </ul>
-          </div>
         </div>
       )}
 

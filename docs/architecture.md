@@ -127,7 +127,7 @@ Seven tables power the system:
 - **managed_users** — PostgreSQL users for external access (username, database, access level, allowed_ips)
 - **dev_databases** — Database assignments for dev role users
 - **audit_log** — All actions logged (username, action, database, detail, ip, timestamp)
-- **system_config** — Key-value config (setup flag, PgBouncer settings, WAL-G S3 backup config)
+- **system_config** — Key-value config (setup flag, PgBouncer settings)
 - **pgbouncer_databases** — Database allowlist for PgBouncer access
 
 Relationships: `auth_users` has many `sessions` and `dev_databases` (cascade delete). `managed_users` uses a composite key on `(username, database_name)`.
@@ -162,9 +162,7 @@ pgmanager integrates [WAL-G](https://github.com/wal-g/wal-g) for continuous WAL 
 
 ### S3 Configuration
 
-S3 credentials are environment variables only (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`). Non-sensitive settings are stored in the `system_config` table and configurable via the S3 Backups UI.
-
-Environment variables (set in `docker-compose.yml` or `.env`):
+All WAL-G settings come from environment variables only — there is no database-stored config. Set these in `docker-compose.yml` or `.env`:
 
 | Variable | Description |
 |----------|-------------|
@@ -174,8 +172,8 @@ Environment variables (set in `docker-compose.yml` or `.env`):
 | `AWS_ENDPOINT` | Custom S3 endpoint (MinIO, R2, etc.) |
 | `AWS_REGION` | S3 region |
 | `AWS_S3_FORCE_PATH_STYLE` | `true` for MinIO and most S3-compatible providers |
-
-Non-sensitive settings (`interval`, `retentionDays`, `s3Prefix`, `endpoint`, `region`, `forcePathStyle`) are stored in the `system_config` table and configurable via the S3 Backups UI.
+| `WALG_BACKUP_INTERVAL` | Seconds between base backups (default: 3600) |
+| `WALG_BACKUP_RETENTION_DAYS` | Days to keep backups (default: 7) |
 
 ### Supported Providers
 

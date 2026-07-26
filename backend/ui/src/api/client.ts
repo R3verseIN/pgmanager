@@ -65,8 +65,6 @@ export type {
 export { fetchSettings, updateSettings } from "./settings";
 export {
   fetchWalgStatus,
-  fetchWalgConfig,
-  updateWalgConfig,
   fetchWalgBackups,
   triggerWalgBackup,
   restoreWalgBackup,
@@ -78,6 +76,5 @@ export {
 export type {
   WalgStatus,
   WalgBackup,
-  WalgConfig,
   WalgVerifyResult,
 } from "./walg";

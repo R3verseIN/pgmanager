@@ -90,7 +90,7 @@ func main() {
 			return
 		}
 
-		// Start ticker with interval from system_config (re-reads on each cycle)
+		// Start ticker with interval from WALG_BACKUP_INTERVAL env var (re-reads on each cycle)
 		for {
 			intervalSec := wh.GetScheduledBackupInterval()
 			ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
@@ -318,14 +318,6 @@ func main() {
 		// WAL-G S3 backup routes (admin only)
 		if path == "/api/walg/status" {
 			wh.GetStatus(w, r)
-			return
-		}
-		if method == "GET" && path == "/api/walg/config" {
-			wh.GetConfig(w, r)
-			return
-		}
-		if method == "PUT" && path == "/api/walg/config" {
-			wh.UpdateConfig(w, r)
 			return
 		}
 		if method == "GET" && path == "/api/walg/backups" {
