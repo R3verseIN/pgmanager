@@ -92,6 +92,7 @@ services:
       PGSSLMODE: disable
       PGBOUNCER_AUTH_PASSWORD: pgmanager
       # WAL-G credentials for CLI commands (backup-push, backup-fetch, etc.)
+      WALG_S3_PREFIX: s3://pgmanager-test
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_ENDPOINT: http://minio:9000

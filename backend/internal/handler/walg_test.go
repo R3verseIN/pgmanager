@@ -226,10 +226,26 @@ type walgBackup struct {
 	Status     string `json:"status"`
 }
 
+// requireWalg checks the API status endpoint to see if WAL-G is configured.
+// This checks the container's env vars, not the host's.
+func requireWalg(t *testing.T) {
+	t.Helper()
+	cookie := setupAndLogin(t)
+	resp := httpRequest(t, "GET", "/api/walg/status", nil, cookie)
+	defer resp.Body.Close()
+	var status walgStatus
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		t.Skipf("failed to decode status — skipping WAL-G test: %v", err)
+	}
+	if !status.Enabled {
+		t.Skip("WAL-G not enabled (WALG_S3_PREFIX not set in container) — skipping")
+	}
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 // TestWalgIntegration_StatusNotConfigured verifies that the status endpoint
-// returns disabled/unconfigured when WALG_S3_PREFIX env var is not set.
+// returns disabled/unconfigured when WALG_S3_PREFIX is not set.
 func TestWalgIntegration_StatusNotConfigured(t *testing.T) {
 	cookie := setupAndLogin(t)
 
@@ -239,20 +255,15 @@ func TestWalgIntegration_StatusNotConfigured(t *testing.T) {
 	var status walgStatus
 	readJSON(t, resp, &status)
 
-	// If WALG_S3_PREFIX is not set in the env, enabled should be false.
-	// If it IS set (CI env), this test is a no-op.
-	if os.Getenv("WALG_S3_PREFIX") == "" {
-		if status.Enabled {
-			t.Error("expected enabled=false when WALG_S3_PREFIX is not set")
-		}
-		if status.Configured {
-			t.Error("expected configured=false when WALG_S3_PREFIX is not set")
-		}
-		if len(status.Errors) == 0 {
-			t.Error("expected at least one error when WALG_S3_PREFIX is not set")
-		}
-	} else {
-		t.Skip("WALG_S3_PREFIX is set — skipping not-configured test")
+	// Check API status, not host env var.
+	if status.Enabled {
+		t.Skip("WAL-G is enabled — skipping not-configured test")
+	}
+	if status.Configured {
+		t.Error("expected configured=false when not enabled")
+	}
+	if len(status.Errors) == 0 {
+		t.Error("expected at least one error when not enabled")
 	}
 }
 
@@ -261,6 +272,7 @@ func TestWalgIntegration_StatusNotConfigured(t *testing.T) {
 // It validates that WAL-G can connect to S3 and create a real backup.
 func TestWalgIntegration_TriggerBackup(t *testing.T) {
 	cookie := setupAndLogin(t)
+	requireWalg(t)
 
 	resp := httpRequest(t, "POST", "/api/walg/backup", nil, cookie)
 
@@ -285,6 +297,7 @@ func TestWalgIntegration_TriggerBackup(t *testing.T) {
 // TestWalgIntegration_ListBackups verifies that backups are listed correctly.
 func TestWalgIntegration_ListBackups(t *testing.T) {
 	cookie := setupAndLogin(t)
+	requireWalg(t)
 
 	// Create a backup first.
 	backupResp := httpRequest(t, "POST", "/api/walg/backup", nil, cookie)
@@ -315,6 +328,7 @@ func TestWalgIntegration_ListBackups(t *testing.T) {
 // TestWalgIntegration_VerifyIntegrity runs a WAL integrity check.
 func TestWalgIntegration_VerifyIntegrity(t *testing.T) {
 	cookie := setupAndLogin(t)
+	requireWalg(t)
 
 	// Create a backup first.
 	backupResp := httpRequest(t, "POST", "/api/walg/backup", nil, cookie)
@@ -343,6 +357,7 @@ func TestWalgIntegration_VerifyIntegrity(t *testing.T) {
 func TestWalgIntegration_RestoreBackup(t *testing.T) {
 	cookie := setupAndLogin(t)
 	pool := walgTestPool(t)
+	requireWalg(t)
 
 	// Create a source database with test data.
 	sourceDB := "walg_restore_src"
@@ -421,6 +436,7 @@ func TestWalgIntegration_RestoreBackup(t *testing.T) {
 // TestWalgIntegration_DeleteBackup deletes a specific backup by name.
 func TestWalgIntegration_DeleteBackup(t *testing.T) {
 	cookie := setupAndLogin(t)
+	requireWalg(t)
 
 	// Create a backup.
 	backupResp := httpRequest(t, "POST", "/api/walg/backup", nil, cookie)
@@ -468,6 +484,7 @@ func TestWalgIntegration_DeleteBackup(t *testing.T) {
 // TestWalgIntegration_CleanGarbage runs garbage cleanup on S3.
 func TestWalgIntegration_CleanGarbage(t *testing.T) {
 	cookie := setupAndLogin(t)
+	requireWalg(t)
 
 	// Create a backup first.
 	backupResp := httpRequest(t, "POST", "/api/walg/backup", nil, cookie)
@@ -491,9 +508,12 @@ func TestWalgIntegration_CleanGarbage(t *testing.T) {
 func TestWalgIntegration_NoConfigEndpoints(t *testing.T) {
 	cookie := setupAndLogin(t)
 
-	// If WALG_S3_PREFIX is set, operations won't return 400.
-	if os.Getenv("WALG_S3_PREFIX") != "" {
-		t.Skip("WALG_S3_PREFIX is set — skipping no-config test")
+	// Check API status — skip if WAL-G is enabled.
+	statusResp := httpRequest(t, "GET", "/api/walg/status", nil, cookie)
+	var status walgStatus
+	readJSON(t, statusResp, &status)
+	if status.Enabled {
+		t.Skip("WAL-G is enabled — skipping no-config test")
 	}
 
 	listResp := httpRequest(t, "GET", "/api/walg/backups", nil, cookie)
@@ -521,6 +541,7 @@ func TestWalgIntegration_NoConfigEndpoints(t *testing.T) {
 func TestWalgIntegration_FullLifecycle(t *testing.T) {
 	cookie := setupAndLogin(t)
 	pool := walgTestPool(t)
+	requireWalg(t)
 
 	// ── Step 1: Check status ──────────────────────────────────────
 	t.Log("step 1: checking status")

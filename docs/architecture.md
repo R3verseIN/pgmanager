@@ -199,7 +199,7 @@ The S3 Backups page (`/databases/backups`) provides a full management interface:
 - **Restore** — Opens a dialog to select a target database, fetches the backup, starts a temp PostgreSQL instance, runs `pg_dump`/`pg_restore`, and cleans up
 - **Delete** — Removes a specific backup from S3
 - **Clean Garbage** — Runs `wal-g delete garbage` to clean expired WAL segments and old backups
-- **Configuration** — Edit interval, retention days, S3 prefix, endpoint, region, and path style (credentials are env vars only)
+- **Diagnostics** — Shows actionable error messages when env vars are missing/misconfigured
 
 ### WAL-G Setup Tool
 
