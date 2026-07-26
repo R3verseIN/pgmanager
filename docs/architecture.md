@@ -19,7 +19,7 @@ Direct database exposure creates two risks: security (brute force, SQL injection
 
 ### Low Memory Footprint
 
-The Go backend compiles to a single static binary. The React+Vite frontend is embedded directly into the binary via `//go:embed`. No nginx or reverse proxy needed, no separate Node.js process for serving the UI, ~10MB RAM usage for the entire backend. One container, one process, minimal attack surface.
+The Go backend compiles to a single static binary. The React+Vite frontend is embedded directly into the binary via `//go:embed`. No nginx or reverse proxy needed, no separate Node.js process for serving the UI, ~7MB RAM usage for the entire backend. One container, one process, minimal attack surface.
 
 ### Self-Contained
 
@@ -127,7 +127,7 @@ Seven tables power the system:
 - **managed_users** — PostgreSQL users for external access (username, database, access level, allowed_ips)
 - **dev_databases** — Database assignments for dev role users
 - **audit_log** — All actions logged (username, action, database, detail, ip, timestamp)
-- **system_config** — Key-value config (setup flag, PgBouncer settings)
+- **system_config** — Key-value config (setup flag, PgBouncer settings, WAL-G S3 backup config)
 - **pgbouncer_databases** — Database allowlist for PgBouncer access
 
 Relationships: `auth_users` has many `sessions` and `dev_databases` (cascade delete). `managed_users` uses a composite key on `(username, database_name)`.
@@ -152,28 +152,30 @@ pgmanager integrates [WAL-G](https://github.com/wal-g/wal-g) for continuous WAL 
 2. **Base Backups** — WAL-G creates full base backups at the configured interval (`WALG_BACKUP_INTERVAL`, default: 3600s). Backups are stored in S3 with metadata (backup name, time, WAL segment).
 3. **Point-in-Time Recovery** — Restore to any point in time by replaying WAL segments from the base backup. The `restore_command` (`wal-g wal-fetch %f %p`) retrieves WAL files from S3 during recovery.
 4. **Garbage Collection** — Old backups and WAL segments are cleaned up based on `WALG_BACKUP_RETENTION_DAYS` (default: 7 days).
+5. **Scheduled Backups** — Base backups run automatically at the configured interval. After each scheduled backup, garbage cleanup runs automatically to remove expired WAL segments and backups beyond retention.
+6. **Restore** — Fetches backup from S3 via `backup-fetch`, starts a temporary PostgreSQL instance from the fetched PGDATA with `restore_command = 'wal-g wal-fetch %f %p'` to replay WAL from S3, waits for promotion, runs `pg_dump` on the backup data, then `pg_restore` into the target database on the live server. The temp instance uses process group isolation (`Setpgid`) for clean shutdown — `SIGINT` to the entire process group, with `SIGKILL` fallback after 10s, and orphan reaping via `Wait4`.
 
 ### Container Layout
 
 - **db container** — WAL-G binary installed. Runs `archive_command` (local push to S3). PostgreSQL configured with `wal_level=replica`, `archive_mode=on`.
-- **app container** — WAL-G binary installed. Remote operations via BASE_BACKUP protocol (list, trigger, restore, delete, verify). The Go backend manages WAL-G configuration and backup lifecycle through the S3 Backups UI.
+- **app container** — WAL-G binary installed, plus `postgresql17` server, `su-exec`, and `gcompat` (WAL-G glibc compat on Alpine). Remote operations via BASE_BACKUP protocol (list, trigger, restore, delete, verify, test-connection). The Go backend manages WAL-G configuration and backup lifecycle through the S3 Backups UI. On restore, a temporary PostgreSQL instance is started from the fetched backup data.
 
 ### S3 Configuration
 
-All S3 settings are configured via environment variables in `.env`:
+S3 credentials are environment variables only (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`). Non-sensitive settings are stored in the `system_config` table and configurable via the S3 Backups UI.
 
-```
-WALG_S3_PREFIX=s3://my-bucket/pgmanager    # S3 URI (required to enable)
-AWS_ACCESS_KEY_ID=...                        # S3 credentials
-AWS_SECRET_ACCESS_KEY=...
-AWS_ENDPOINT=http://minio:9000              # Custom endpoint (MinIO, etc.)
-AWS_REGION=us-east-1
-AWS_S3_FORCE_PATH_STYLE=true               # Required for MinIO
-WALG_BACKUP_INTERVAL=3600                   # Base backup interval (seconds)
-WALG_BACKUP_RETENTION_DAYS=7                # Retention period
-```
+Environment variables (set in `docker-compose.yml` or `.env`):
 
-Non-sensitive settings (interval, retention, path style) are also stored in the `system_config` table and configurable via the S3 Backups UI. S3 credentials stay in environment variables only.
+| Variable | Description |
+|----------|-------------|
+| `WALG_S3_PREFIX` | S3 URI, e.g. `s3://my-bucket` (required to enable WAL-G) |
+| `AWS_ACCESS_KEY_ID` | S3 access key |
+| `AWS_SECRET_ACCESS_KEY` | S3 secret key |
+| `AWS_ENDPOINT` | Custom S3 endpoint (MinIO, R2, etc.) |
+| `AWS_REGION` | S3 region |
+| `AWS_S3_FORCE_PATH_STYLE` | `true` for MinIO and most S3-compatible providers |
+
+Non-sensitive settings (`interval`, `retentionDays`, `s3Prefix`, `endpoint`, `region`, `forcePathStyle`) are stored in the `system_config` table and configurable via the S3 Backups UI.
 
 ### Supported Providers
 
@@ -186,3 +188,21 @@ All providers use the same environment variables — only the values change.
 - **Any S3-compatible storage** — Set the endpoint and path style as needed.
 
 See [docs/walg-s3-setup.md](walg-s3-setup.md) for provider-specific setup instructions, bucket creation, and troubleshooting.
+
+### S3 Backups UI
+
+The S3 Backups page (`/databases/backups`) provides a full management interface:
+
+- **Status banner** — Shows archiving state, backup count, total storage size, last backup time, configured interval, and retention period
+- **Test Connection** — Validates S3 connectivity by listing backups from the configured bucket
+- **Trigger Backup** — Manually creates a base backup on demand
+- **Backup list** — Shows all backups with name, timestamp, WAL segment, size, and status
+- **Verify Integrity** — Runs `wal-verify` to check WAL segment continuity
+- **Restore** — Opens a dialog to select a target database, fetches the backup, starts a temp PostgreSQL instance, runs `pg_dump`/`pg_restore`, and cleans up
+- **Delete** — Removes a specific backup from S3
+- **Clean Garbage** — Runs `wal-g delete garbage` to clean expired WAL segments and old backups
+- **Configuration** — Edit interval, retention days, S3 prefix, endpoint, region, and path style (credentials are env vars only)
+
+### WAL-G Setup Tool
+
+A standalone CLI tool (`scripts/walg-setup/`) helps users configure WAL-G with any S3-compatible provider. It walks through provider selection (AWS S3, Cloudflare R2, DigitalOcean Spaces, Wasabi, Backblaze B2, Google Cloud Storage, Alibaba OSS, Scaleway, MinIO, Ceph, or custom S3-compatible), validates bucket connectivity, and outputs the environment variables needed for `docker-compose.yml`. The tool is built separately and not included in the Docker image.
