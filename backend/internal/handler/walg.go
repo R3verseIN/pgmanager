@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"pgmanager/internal/auth"
@@ -435,7 +436,9 @@ func (wh *WalgHandler) listBackups(ctx context.Context) ([]walgBackupEntry, erro
 		if wal, ok := b["wal_file_name"].(string); ok {
 			entry.WalSegment = wal
 		}
-		if size, ok := b["backup_size"].(float64); ok {
+		if size, ok := b["compressed_size"].(float64); ok {
+			entry.Size = int64(size)
+		} else if size, ok := b["backup_size"].(float64); ok {
 			entry.Size = int64(size)
 		} else if size, ok := b["size"].(float64); ok {
 			entry.Size = int64(size)
@@ -539,6 +542,7 @@ func (wh *WalgHandler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		Detail:    map[string]interface{}{"backupName": backupName},
 	})
 
+	// Step 1: Fetch backup (raw PGDATA)
 	_, err = wh.runWalg(ctx, []string{"backup-fetch", restoreDir, backupName})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to fetch backup: "+sanitizeRedact(err.Error()))
@@ -551,9 +555,154 @@ func (wh *WalgHandler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	host, port, pgUser, pgPassword := wh.getPgCredentials()
+	// Step 2: Start a temporary PostgreSQL instance from the fetched PGDATA
+	// to pg_dump the specific database in custom format.
+	// The fetched PGDATA is already initialized — no initdb needed.
+	tmpPort := "15432"
+	tmpSocketDir, err := os.MkdirTemp("", "walg-pg-sock-*")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create temp socket dir")
+		return
+	}
+	defer os.RemoveAll(tmpSocketDir)
 
-	cmd := exec.CommandContext(ctx, "pg_restore",
+	// Configure trust auth on the temp instance
+	hbaConf := filepath.Join(pgdataDir, "pg_hba.conf")
+	hbaContent := "local all all trust\nhost all all 127.0.0.1/32 trust\n"
+	if err := os.WriteFile(hbaConf, []byte(hbaContent), 0644); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to write pg_hba.conf")
+		return
+	}
+
+	// Write a minimal postgresql.conf for the temp instance
+	postgresqlConf := filepath.Join(pgdataDir, "postgresql.conf")
+	minimalConf := fmt.Sprintf(
+		"port = %s\n"+
+			"unix_socket_directories = '%s'\n"+
+			"listen_addresses = '127.0.0.1'\n"+
+			"shared_preload_libraries = ''\n"+
+			"archive_mode = off\n"+
+			"max_wal_senders = 10\n"+
+			"wal_level = minimal\n"+
+			"restore_command = 'wal-g wal-fetch %%f %%p'\n"+
+			"recovery_target_action = 'promote'\n",
+		tmpPort, tmpSocketDir,
+	)
+	if err := os.WriteFile(postgresqlConf, []byte(minimalConf), 0644); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to write postgresql.conf")
+		return
+	}
+
+	// Write pg_hba.conf with trust auth for the temp instance
+	pgHbaConf := filepath.Join(pgdataDir, "pg_hba.conf")
+	minimalHba := "local all all trust\nhost all all 127.0.0.1/32 trust\n"
+	if err := os.WriteFile(pgHbaConf, []byte(minimalHba), 0644); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to write pg_hba.conf")
+		return
+	}
+
+	// Create recovery.signal so PostgreSQL enters recovery mode.
+	// Keep backup_label — PostgreSQL needs it for the checkpoint record.
+	// restore_command = 'wal-g wal-fetch %f %p' fetches WAL from S3.
+	os.WriteFile(filepath.Join(pgdataDir, "recovery.signal"), []byte(""), 0644)
+
+	// Chown PGDATA, restoreDir, and socket dir to postgres user (UID 70)
+	chownCmd := exec.CommandContext(ctx, "chown", "-R", "70:70", pgdataDir)
+	chownCmd.Run()
+	chownCmd2 := exec.CommandContext(ctx, "chown", "-R", "70:70", restoreDir)
+	chownCmd2.Run()
+	chownCmd3 := exec.CommandContext(ctx, "chown", "-R", "70:70", tmpSocketDir)
+	chownCmd3.Run()
+
+	var pgStderr bytes.Buffer
+	pgCmd := exec.CommandContext(ctx, "su-exec", "postgres",
+		"postgres",
+		"-D", pgdataDir,
+		"-p", tmpPort,
+		"-k", tmpSocketDir,
+	)
+	pgCmd.Env = append(os.Environ(), "LC_ALL=C")
+	pgCmd.Env = append(pgCmd.Env, wh.walgEnv()...)
+	pgCmd.Stdout = &pgStderr
+	pgCmd.Stderr = &pgStderr
+	if err := pgCmd.Start(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start temp postgres: "+sanitizeRedact(pgStderr.String()))
+		return
+	}
+	log.Printf("walg-restore: temp postgres started (pid=%d)", pgCmd.Process.Pid)
+	defer func() {
+		pgCmd.Process.Signal(os.Interrupt)
+		pgCmd.Wait()
+	}()
+
+	// Get admin user for connection checks
+	_, _, adminUser, _ := wh.getPgCredentials()
+
+	// Wait for the temp instance to fully promote (not just accepting connections during recovery)
+	ready := false
+	for i := 0; i < 60; i++ {
+		// Check if process is still alive
+		if pgCmd.Process != nil {
+			if err := pgCmd.Process.Signal(syscall.Signal(0)); err != nil {
+				log.Printf("walg-restore: temp postgres died after %ds, stderr: %s", i, pgStderr.String())
+				break
+			}
+		}
+		checkCmd := exec.CommandContext(ctx, "pg_isready",
+			"-h", "127.0.0.1", "-p", tmpPort,
+		)
+		if err := checkCmd.Run(); err == nil {
+			// Verify recovery is finished by checking pg_is_in_recovery()
+			psqlCheck := exec.CommandContext(ctx, "psql",
+				"-h", "127.0.0.1", "-p", tmpPort,
+				"-U", adminUser,
+				"-d", "template1",
+				"-tAc", "SELECT pg_is_in_recovery()",
+			)
+			psqlCheck.Env = append(os.Environ(), "PGPASSWORD=")
+			out, err := psqlCheck.Output()
+			if err == nil && strings.TrimSpace(string(out)) == "f" {
+				ready = true
+				break
+			}
+		}
+		time.Sleep(time.Second)
+	}
+	if !ready {
+		log.Printf("walg-restore: temp postgres did not start/promote within 60s. stderr: %s", pgStderr.String())
+		writeError(w, http.StatusInternalServerError, "temp postgres did not start/promote within 60s: "+sanitizeRedact(pgStderr.String()))
+		return
+	}
+	log.Printf("walg-restore: temp postgres ready, dumping database pgmanager into %s", req.Database)
+
+	// Step 3: pg_dump the pgmanager database from the backup in custom format.
+	// The backup is a full cluster backup — pgmanager is the main database.
+	// Use the superuser from the backup data (same as the primary server's admin user).
+	_, _, pgUser, _ := wh.getPgCredentials()
+	dumpFile := filepath.Join(restoreDir, "dump.dump")
+	dumpCmd := exec.CommandContext(ctx, "pg_dump",
+		"-h", "127.0.0.1",
+		"-p", tmpPort,
+		"-U", pgUser,
+		"-d", "pgmanager",
+		"-Fc",
+		"-f", dumpFile,
+	)
+	dumpCmd.Env = append(os.Environ(), "PGPASSWORD=")
+	var dumpStderr bytes.Buffer
+	dumpCmd.Stderr = &dumpStderr
+	if err := dumpCmd.Run(); err != nil {
+		writeError(w, http.StatusInternalServerError, "pg_dump failed: "+sanitizeRedact(dumpStderr.String()))
+		return
+	}
+
+	// Stop temp postgres
+	pgCmd.Process.Signal(os.Interrupt)
+	pgCmd.Wait()
+
+	// Step 4: pg_restore into the target database
+	host, port, pgUser, pgPassword := wh.getPgCredentials()
+	restoreCmd := exec.CommandContext(ctx, "pg_restore",
 		"-h", host,
 		"-p", port,
 		"-U", pgUser,
@@ -562,16 +711,16 @@ func (wh *WalgHandler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		"--no-privileges",
 		"--clean",
 		"--if-exists",
-		pgdataDir,
+		dumpFile,
 	)
-	cmd.Env = append(os.Environ(), "PGPASSWORD="+pgPassword)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	restoreCmd.Env = append(os.Environ(), "PGPASSWORD="+pgPassword)
+	var restoreStderr bytes.Buffer
+	restoreCmd.Stderr = &restoreStderr
 
-	err = cmd.Run()
-	if err != nil && cmd.ProcessState.ExitCode() != 1 {
+	err = restoreCmd.Run()
+	if err != nil && restoreCmd.ProcessState.ExitCode() > 1 {
 		writeError(w, http.StatusInternalServerError,
-			"pg_restore failed: "+sanitizeRedact(stderr.String()))
+			"pg_restore failed: "+sanitizeRedact(restoreStderr.String()))
 		return
 	}
 
