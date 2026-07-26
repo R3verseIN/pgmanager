@@ -177,7 +177,12 @@ Non-sensitive settings (interval, retention, path style) are also stored in the 
 
 ### Supported Providers
 
-- **AWS S3** — Default. Set `AWS_ENDPOINT` to empty.
-- **MinIO** — Set `AWS_ENDPOINT=http://minio:9000` and `AWS_S3_FORCE_PATH_STYLE=true`.
+All providers use the same environment variables — only the values change.
+
+- **AWS S3** — Default. No `AWS_ENDPOINT` needed. Region should match your bucket.
+- **Cloudflare R2** — Set `AWS_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, `AWS_REGION=auto`, `AWS_S3_FORCE_PATH_STYLE=true`. R2 does not support S3 SSE/KMS or Object Lock. See [setup guide](walg-s3-setup.md#cloudflare-r2) for details.
+- **MinIO** — Set `AWS_ENDPOINT=http://minio:9000` and `AWS_S3_FORCE_PATH_STYLE=true`. Useful for local development.
 - **SeaweedFS** — Same as MinIO configuration.
 - **Any S3-compatible storage** — Set the endpoint and path style as needed.
+
+See [docs/walg-s3-setup.md](walg-s3-setup.md) for provider-specific setup instructions, bucket creation, and troubleshooting.
