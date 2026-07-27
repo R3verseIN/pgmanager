@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"pgmanager/internal/auth"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // extractUserFromPath extracts the username from paths like /api/users/{username}[/...]
@@ -712,7 +714,16 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	_, _ = h.pool.Exec(ctx, "DROP OWNED BY "+quoteIdent(username)+" CASCADE")
+
+	// DROP OWNED BY must run on each target database to revoke all grants
+	databases := h.getUserDatabases(ctx, username)
+	for _, db := range databases {
+		h.withDatabase(ctx, db, func(conn *pgx.Conn) error {
+			conn.Exec(ctx, "DROP OWNED BY "+quoteIdent(username)+" CASCADE")
+			return nil
+		})
+	}
+
 	_, _ = h.pool.Exec(ctx, "DROP ROLE IF EXISTS "+quoteIdent(username))
 	_, _ = h.pool.Exec(ctx, "DELETE FROM managed_users WHERE username = $1", username)
 
@@ -751,66 +762,117 @@ func (h *Handler) getUserDatabases(ctx context.Context, username string) []strin
 	return dbs
 }
 
+// withDatabase opens a single connection to the specified database, runs fn,
+// and closes the connection. Used for schema-level grants that must target
+// a specific database rather than the pool's default (pgmanager) database.
+func (h *Handler) withDatabase(ctx context.Context, dbName string, fn func(conn *pgx.Conn) error) error {
+	dsn := h.baseDSN + "&dbname=" + dbName
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+	return fn(conn)
+}
+
 func (h *Handler) grantAccess(ctx context.Context, username, db, access string) error {
+	// Database-level grant — runs on pool (not database-scoped)
 	if _, err := h.pool.Exec(ctx, "GRANT CONNECT ON DATABASE "+quoteIdent(db)+" TO "+quoteIdent(username)); err != nil {
 		return err
 	}
-	if _, err := h.pool.Exec(ctx, "GRANT USAGE ON SCHEMA public TO "+quoteIdent(username)); err != nil {
-		return err
-	}
 
-	switch access {
-	case "read":
-		if _, err := h.pool.Exec(ctx, "GRANT SELECT ON ALL TABLES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
+	// Schema-level grants — must run on target database
+	return h.withDatabase(ctx, db, func(conn *pgx.Conn) error {
+		if _, err := conn.Exec(ctx, "GRANT USAGE ON SCHEMA public TO "+quoteIdent(username)); err != nil {
 			return err
 		}
-		if _, err := h.pool.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO "+quoteIdent(username)); err != nil {
-			return err
+
+		switch access {
+		case "read":
+			if _, err := conn.Exec(ctx, "GRANT SELECT ON ALL TABLES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+		case "write":
+			if _, err := conn.Exec(ctx, "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+		case "ddl":
+			if _, err := conn.Exec(ctx, "GRANT USAGE, CREATE ON SCHEMA public TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+		case "full":
+			// Database-level ALL — runs on pool (not database-scoped)
+			if _, err := h.pool.Exec(ctx, "GRANT ALL PRIVILEGES ON DATABASE "+quoteIdent(db)+" TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "GRANT ALL ON SCHEMA public TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "GRANT ALL ON ALL TABLES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "+quoteIdent(username)); err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "+quoteIdent(username)); err != nil {
+				return err
+			}
 		}
-	case "write":
-		if _, err := h.pool.Exec(ctx, "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
-			return err
-		}
-		if _, err := h.pool.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "+quoteIdent(username)); err != nil {
-			return err
-		}
-	case "ddl":
-		if _, err := h.pool.Exec(ctx, "GRANT USAGE, CREATE ON SCHEMA public TO "+quoteIdent(username)); err != nil {
-			return err
-		}
-		if _, err := h.pool.Exec(ctx, "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
-			return err
-		}
-		if _, err := h.pool.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "+quoteIdent(username)); err != nil {
-			return err
-		}
-	case "full":
-		if _, err := h.pool.Exec(ctx, "GRANT ALL PRIVILEGES ON DATABASE "+quoteIdent(db)+" TO "+quoteIdent(username)); err != nil {
-			return err
-		}
-		if _, err := h.pool.Exec(ctx, "GRANT ALL ON SCHEMA public TO "+quoteIdent(username)); err != nil {
-			return err
-		}
-		if _, err := h.pool.Exec(ctx, "GRANT ALL ON ALL TABLES IN SCHEMA public TO "+quoteIdent(username)); err != nil {
-			return err
-		}
-		if _, err := h.pool.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "+quoteIdent(username)); err != nil {
-			return err
-		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (h *Handler) revokeAccess(ctx context.Context, username, db string) error {
-	h.pool.Exec(ctx, "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM "+quoteIdent(username))
-	h.pool.Exec(ctx, "REVOKE USAGE ON SCHEMA public FROM "+quoteIdent(username))
-	h.pool.Exec(ctx, "REVOKE CREATE ON SCHEMA public FROM "+quoteIdent(username))
+	// Database-level revokes — run on pool
 	h.pool.Exec(ctx, "REVOKE ALL PRIVILEGES ON DATABASE "+quoteIdent(db)+" FROM "+quoteIdent(username))
 	h.pool.Exec(ctx, "REVOKE CONNECT ON DATABASE "+quoteIdent(db)+" FROM "+quoteIdent(username))
+
+	// Schema-level revokes — must run on target database
+	h.withDatabase(ctx, db, func(conn *pgx.Conn) error {
+		conn.Exec(ctx, "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM "+quoteIdent(username))
+		conn.Exec(ctx, "REVOKE ALL ON SCHEMA public FROM "+quoteIdent(username))
+		return nil
+	})
 	return nil
 }
 
 func (h *Handler) rollbackUser(ctx context.Context, username string) {
+	// Clean up grants on each target database
+	databases := h.getUserDatabases(ctx, username)
+	for _, db := range databases {
+		h.withDatabase(ctx, db, func(conn *pgx.Conn) error {
+			conn.Exec(ctx, "DROP OWNED BY "+quoteIdent(username)+" CASCADE")
+			return nil
+		})
+	}
+
 	conn, err := h.pool.Acquire(ctx)
 	if err != nil {
 		return
