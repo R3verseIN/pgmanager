@@ -302,6 +302,12 @@ def generate_self_signed_certs() -> None:
     csr_path.unlink(missing_ok=True)
     (DATA_DIR / "root.srl").unlink(missing_ok=True)
 
+    # Ensure postgres owns all cert files (belt-and-suspenders)
+    for p in [cert_path, key_path, ca_cert_path, ca_key_path]:
+        if p.exists():
+            subprocess.run(["chown", "postgres:postgres", str(p)],
+                           check=False, capture_output=True)
+
     print("pgmanager-init: self-signed SSL certificates generated")
 
 
@@ -328,6 +334,12 @@ def configure_ssl() -> None:
     # SSL is on — ensure certs exist (regenerate if missing)
     if not cert_path.exists() or not key_path.exists():
         generate_self_signed_certs()
+
+    # Ensure cert files are owned by postgres (Go API may have written as root)
+    for p in [cert_path, key_path, ca_path]:
+        if p.exists():
+            subprocess.run(["chown", "postgres:postgres", str(p)],
+                           check=False, capture_output=True)
 
     # Ensure cert paths are set (idempotent, safe to repeat)
     print("pgmanager-init: enabling SSL...")
