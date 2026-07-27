@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-pgmanager-init: PostgreSQL-level self-healing script.
+pgmanager-init: First-boot initialization script.
 
-Runs on every startup (after PostgreSQL is ready).
-Validates env vars, ensures users/functions/password files exist.
-Configures SSL: ssl=on is set once at first boot and never toggled.
-Cert files are the source of truth — if they exist, SSL is on.
+Runs ONCE on first start (when data directory is empty).
+Creates users, databases, and pgbouncer_auth function.
+SSL and WAL archiving are managed by the Go app via SSH.
 """
 
 import os
@@ -17,7 +16,6 @@ from pathlib import Path
 DATA_DIR = Path("/var/lib/postgresql/data")
 PASSWORD_FILE = DATA_DIR / "pgmanager-password"
 AUTH_PASSWORD_FILE = DATA_DIR / "pgbouncer-auth-password"
-PGBOUNCER_SSL_PREF_FILE = DATA_DIR / "pgmanager-pgbouncer-ssl"
 
 
 def fatal(msg: str) -> None:
@@ -172,184 +170,11 @@ def ensure_hba_rules() -> None:
         print("pgmanager-init: no scram-sha-256 catch-all found, rules may need manual setup")
 
 
-def update_hba_rules_for_ssl(require_ssl: bool) -> None:
-    """Update external connection HBA rules based on SSL preference."""
-    hba_file = DATA_DIR / "pg_hba.conf"
-    if not hba_file.exists():
-        return
-
-    content = hba_file.read_text()
-
-    if require_ssl:
-        # Replace host with hostssl for external connections
-        content = re.sub(
-            r'^host\s+all\s+all\s+0\.0\.0\.0/0\s+',
-            'hostssl all all 0.0.0.0/0 ',
-            content,
-            flags=re.MULTILINE,
-        )
-        content = re.sub(
-            r'^host\s+all\s+all\s+::0/0\s+',
-            'hostssl all all ::0/0 ',
-            content,
-            flags=re.MULTILINE,
-        )
-    else:
-        # Replace hostssl with host for external connections
-        content = re.sub(
-            r'^hostssl\s+all\s+all\s+0\.0\.0\.0/0\s+',
-            'host all all 0.0.0.0/0 ',
-            content,
-            flags=re.MULTILINE,
-        )
-        content = re.sub(
-            r'^hostssl\s+all\s+all\s+::0/0\s+',
-            'host all all ::0/0 ',
-            content,
-            flags=re.MULTILINE,
-        )
-
-    hba_file.write_text(content)
-    print(f"pgmanager-init: HBA rules updated (require_ssl={require_ssl})")
-
-
 def revoke_system_db_connect() -> None:
     print("pgmanager-init: revoking CONNECT on system databases from PUBLIC...")
     run_sql("REVOKE CONNECT ON DATABASE postgres FROM PUBLIC", dbname="postgres")
     run_sql("REVOKE CONNECT ON DATABASE template1 FROM PUBLIC", dbname="template1")
     print("pgmanager-init: system database CONNECT revoked from PUBLIC")
-
-
-def configure_wal_archiving() -> None:
-    """Configure PostgreSQL WAL archiving for WAL-G if WALG_S3_PREFIX is set."""
-    s3_prefix = os.environ.get("WALG_S3_PREFIX", "")
-    if not s3_prefix:
-        print("pgmanager-init: WALG_S3_PREFIX not set, skipping WAL archiving config")
-        return
-
-    print("pgmanager-init: configuring WAL archiving for WAL-G...")
-    archive_timeout = os.environ.get("WALG_ARCHIVE_TIMEOUT", "300")
-
-    settings = {
-        "wal_level": "replica",
-        "archive_mode": "on",
-        "archive_command": "wal-g wal-push %p",
-        "archive_timeout": archive_timeout,
-    }
-    for key, value in settings.items():
-        run_sql(f"ALTER SYSTEM SET {key} = '{value}';")
-    print(f"pgmanager-init: WAL archiving configured (timeout={archive_timeout}s)")
-
-
-def generate_self_signed_certs() -> None:
-    """Generate self-signed CA and server certificates using openssl."""
-    print("pgmanager-init: generating self-signed SSL certificates...")
-
-    cert_path = DATA_DIR / "server.crt"
-    key_path = DATA_DIR / "server.key"
-    ca_cert_path = DATA_DIR / "root.crt"
-    ca_key_path = DATA_DIR / "root.key"
-
-    # Generate CA key
-    subprocess.run(
-        ["openssl", "ecparam", "-genkey", "-name", "prime256v1",
-         "-out", str(ca_key_path)],
-        check=True, capture_output=True,
-    )
-    ca_key_path.chmod(0o600)
-
-    # Generate CA cert (valid 10 years)
-    subprocess.run(
-        ["openssl", "req", "-new", "-x509",
-         "-key", str(ca_key_path),
-         "-out", str(ca_cert_path),
-         "-days", "3650",
-         "-subj", "/CN=pgmanager-ca/O=pgmanager"],
-        check=True, capture_output=True,
-    )
-
-    # Generate server key
-    subprocess.run(
-        ["openssl", "ecparam", "-genkey", "-name", "prime256v1",
-         "-out", str(key_path)],
-        check=True, capture_output=True,
-    )
-    key_path.chmod(0o600)
-
-    # Generate server CSR
-    csr_path = DATA_DIR / "server.csr"
-    subprocess.run(
-        ["openssl", "req", "-new",
-         "-key", str(key_path),
-         "-out", str(csr_path),
-         "-subj", "/CN=pgmanager-server/O=pgmanager"],
-        check=True, capture_output=True,
-    )
-
-    # Sign server cert with CA (valid 5 years)
-    subprocess.run(
-        ["openssl", "x509", "-req",
-         "-in", str(csr_path),
-         "-CA", str(ca_cert_path),
-         "-CAkey", str(ca_key_path),
-         "-CAcreateserial",
-         "-out", str(cert_path),
-         "-days", "1825"],
-        check=True, capture_output=True,
-    )
-
-    # Clean up CSR and serial
-    csr_path.unlink(missing_ok=True)
-    (DATA_DIR / "root.srl").unlink(missing_ok=True)
-
-    # Ensure postgres owns all cert files (belt-and-suspenders)
-    for p in [cert_path, key_path, ca_cert_path, ca_key_path]:
-        if p.exists():
-            subprocess.run(["chown", "postgres:postgres", str(p)],
-                           check=False, capture_output=True)
-
-    print("pgmanager-init: self-signed SSL certificates generated")
-
-
-def configure_ssl() -> None:
-    """Configure SSL based on postgresql.auto.conf state."""
-    print("pgmanager-init: configuring SSL...")
-
-    cert_path = DATA_DIR / "server.crt"
-    key_path = DATA_DIR / "server.key"
-    ca_path = DATA_DIR / "root.crt"
-    auto_conf = DATA_DIR / "postgresql.auto.conf"
-
-    # Read current ssl setting from postgresql.auto.conf
-    ssl_is_on = False
-    if auto_conf.exists():
-        content = auto_conf.read_text()
-        ssl_is_on = "ssl = 'on'" in content or 'ssl = "on"' in content
-
-    if not ssl_is_on:
-        print("pgmanager-init: SSL disabled, ensuring HBA allows non-SSL")
-        update_hba_rules_for_ssl(require_ssl=False)
-        return
-
-    # SSL is on — ensure certs exist (regenerate if missing)
-    if not cert_path.exists() or not key_path.exists():
-        generate_self_signed_certs()
-
-    # Ensure cert files are owned by postgres (Go API may have written as root)
-    for p in [cert_path, key_path, ca_path]:
-        if p.exists():
-            subprocess.run(["chown", "postgres:postgres", str(p)],
-                           check=False, capture_output=True)
-
-    # Ensure cert paths are set (idempotent, safe to repeat)
-    print("pgmanager-init: enabling SSL...")
-    run_sql(f"ALTER SYSTEM SET ssl_cert_file = '{cert_path}';")
-    run_sql(f"ALTER SYSTEM SET ssl_key_file = '{key_path}';")
-    if ca_path.exists():
-        run_sql(f"ALTER SYSTEM SET ssl_ca_file = '{ca_path}';")
-
-    update_hba_rules_for_ssl(require_ssl=True)
-    print("pgmanager-init: SSL enabled")
 
 
 def main() -> int:
@@ -373,8 +198,6 @@ def main() -> int:
         ensure_pgbouncer_auth(auth_pass)
         ensure_hba_rules()
         revoke_system_db_connect()
-        configure_wal_archiving()
-        configure_ssl()
         print("pgmanager-init: all checks passed")
     except Exception as e:
         print(f"pgmanager-init: ERROR: {e}", file=sys.stderr)

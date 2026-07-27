@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -11,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"os"
@@ -18,16 +18,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"pgmanager/internal/sshcmd"
 )
 
 type SSLHandler struct {
-	pool    *pgxpool.Pool
-	dataDir string
+	dataDir    string
+	sshKeyPath string
+	sshUser    string
+	sshHost    string
 }
 
-func NewSSLHandler(pool *pgxpool.Pool, dataDir string) *SSLHandler {
-	return &SSLHandler{pool: pool, dataDir: dataDir}
+func NewSSLHandler(dataDir, sshKeyPath, sshUser, sshHost string) *SSLHandler {
+	return &SSLHandler{
+		dataDir:    dataDir,
+		sshKeyPath: sshKeyPath,
+		sshUser:    sshUser,
+		sshHost:    sshHost,
+	}
 }
 
 type sslStatus struct {
@@ -66,7 +73,6 @@ func (sh *SSLHandler) pgbouncerRestartSignalPath() string {
 }
 
 // isSSLEnabled checks postgresql.auto.conf for ssl = 'on'.
-// This is the single source of truth — no preference file.
 func (sh *SSLHandler) isSSLEnabled() bool {
 	autoConf := filepath.Join(sh.dataDir, "postgresql.auto.conf")
 	data, err := os.ReadFile(autoConf)
@@ -249,18 +255,26 @@ func (sh *SSLHandler) DownloadCA(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, caPath)
 }
 
-// DELETE /api/ssl
+// DELETE /api/ssl — disables SSL without deleting cert files.
+// Cert files stay on disk so re-enabling is instant.
 func (sh *SSLHandler) DeleteCerts(w http.ResponseWriter, r *http.Request) {
-	// Disable SSL in postgresql.auto.conf (for next restart)
-	commands := []string{
-		"ALTER SYSTEM SET ssl = 'off';",
-		"ALTER SYSTEM RESET ssl_cert_file;",
-		"ALTER SYSTEM RESET ssl_key_file;",
-		"ALTER SYSTEM RESET ssl_ca_file;",
-		"SELECT pg_reload_conf();",
+	// Disable SSL via SSH — ALTER SYSTEM + restart (SSL is postmaster-level)
+	if err := sh.disableSSL(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to disable SSL: "+err.Error())
+		return
 	}
-	for _, cmd := range commands {
-		if _, err := sh.pool.Exec(context.Background(), cmd); err != nil {
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "disabled",
+		"message": "SSL disabled. Certificate files preserved for re-enable.",
+	})
+}
+
+// DELETE /api/ssl/files — permanently removes cert files.
+func (sh *SSLHandler) DeleteCertFiles(w http.ResponseWriter, r *http.Request) {
+	// First disable SSL if it's on
+	if sh.isSSLEnabled() {
+		if err := sh.disableSSL(); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to disable SSL: "+err.Error())
 			return
 		}
@@ -271,21 +285,19 @@ func (sh *SSLHandler) DeleteCerts(w http.ResponseWriter, r *http.Request) {
 		os.Remove(sh.certPath(name))
 	}
 
-	// Update HBA rules to allow non-SSL for external connections
-	sh.updateHBAForSSL(false)
-
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "deleted",
-		"message": "SSL certificates removed. Non-SSL connections now allowed.",
+		"message": "SSL certificates removed.",
 	})
 }
 
-// enableSSL sets ssl=on + cert paths in postgresql.auto.conf, updates HBA, reloads.
+// enableSSL sets ssl=on + cert paths via SSH, updates HBA, restarts PostgreSQL.
 func (sh *SSLHandler) enableSSL() error {
 	certPath := sh.certPath("server.crt")
 	keyPath := sh.certPath("server.key")
 	caPath := sh.certPath("root.crt")
 
+	// Run ALTER SYSTEM SET via SSH
 	commands := []string{
 		"ALTER SYSTEM SET ssl = 'on';",
 		fmt.Sprintf("ALTER SYSTEM SET ssl_cert_file = '%s';", certPath),
@@ -294,16 +306,48 @@ func (sh *SSLHandler) enableSSL() error {
 	if sh.fileExists(caPath) {
 		commands = append(commands, fmt.Sprintf("ALTER SYSTEM SET ssl_ca_file = '%s';", caPath))
 	}
-	commands = append(commands, "SELECT pg_reload_conf();")
 
 	for _, cmd := range commands {
-		if _, err := sh.pool.Exec(context.Background(), cmd); err != nil {
-			return fmt.Errorf("exec %q: %w", cmd, err)
+		sql := fmt.Sprintf("psql -v ON_ERROR_STOP=1 -U pgmanager -d postgres -c \"%s\"", cmd)
+		if _, stderr, err := sshcmd.Exec(sh.sshKeyPath, sh.sshUser, sh.sshHost, sql); err != nil {
+			return fmt.Errorf("SSH exec %q: %w: %s", cmd, err, stderr)
 		}
 	}
 
 	// Update HBA rules to require SSL for external connections
 	sh.updateHBAForSSL(true)
+
+	// Restart PostgreSQL (SSL cert settings require restart, not just reload)
+	if err := sshcmd.RestartPostgreSQL(sh.sshKeyPath, sh.sshUser, sh.sshHost); err != nil {
+		return fmt.Errorf("restart PostgreSQL: %w", err)
+	}
+
+	return nil
+}
+
+// disableSSL sets ssl=off via SSH, updates HBA, restarts PostgreSQL.
+func (sh *SSLHandler) disableSSL() error {
+	commands := []string{
+		"ALTER SYSTEM SET ssl = 'off';",
+		"ALTER SYSTEM RESET ssl_cert_file;",
+		"ALTER SYSTEM RESET ssl_key_file;",
+		"ALTER SYSTEM RESET ssl_ca_file;",
+	}
+
+	for _, cmd := range commands {
+		sql := fmt.Sprintf("psql -v ON_ERROR_STOP=1 -U pgmanager -d postgres -c \"%s\"", cmd)
+		if _, stderr, err := sshcmd.Exec(sh.sshKeyPath, sh.sshUser, sh.sshHost, sql); err != nil {
+			return fmt.Errorf("SSH exec %q: %w: %s", cmd, err, stderr)
+		}
+	}
+
+	// Update HBA rules to allow non-SSL for external connections
+	sh.updateHBAForSSL(false)
+
+	// Restart PostgreSQL (SSL cert settings require restart)
+	if err := sshcmd.RestartPostgreSQL(sh.sshKeyPath, sh.sshUser, sh.sshHost); err != nil {
+		return fmt.Errorf("restart PostgreSQL: %w", err)
+	}
 
 	return nil
 }
@@ -323,6 +367,7 @@ func (sh *SSLHandler) updateHBAForSSL(requireSSL bool) {
 	}
 
 	os.WriteFile(hbaPath, []byte(content), 0644)
+	log.Printf("pgmanager: HBA rules updated (require_ssl=%v)", requireSSL)
 }
 
 func replaceExternalHBA(content, newType string) string {
@@ -334,8 +379,6 @@ func replaceExternalHBA(content, newType string) string {
 			result = append(result, line)
 			continue
 		}
-		// Match external rules: host/hostssl all all 0.0.0.0/0 or ::0/0
-		// HBA format: type database user address method (e.g. "hostssl all all 0.0.0.0/0 scram-sha-256")
 		isExternal := strings.Contains(trimmed, " all all 0.0.0.0/0 ") ||
 			strings.Contains(trimmed, " all all ::0/0 ") ||
 			strings.HasSuffix(trimmed, " all all 0.0.0.0/0") ||
@@ -344,7 +387,6 @@ func replaceExternalHBA(content, newType string) string {
 		isHostOrSSL := strings.HasPrefix(trimmed, "host ") || strings.HasPrefix(trimmed, "hostssl ")
 
 		if isHostOrSSL && isExternal && !isInternalNet {
-			// Preserve trailing whitespace/newline from original line
 			suffix := line[len(trimmed):]
 			idx := strings.Index(trimmed, " ")
 			line = newType + trimmed[idx:] + suffix
@@ -385,7 +427,6 @@ func (sh *SSLHandler) isPgBouncerSSLEnabled() bool {
 			return string(data) != "off"
 		}
 	}
-	// Default: enabled if certs exist
 	return sh.fileExists(sh.certPath("server.crt")) && sh.fileExists(sh.certPath("server.key"))
 }
 
@@ -402,7 +443,6 @@ func (sh *SSLHandler) TogglePgBouncerSSL(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Write preference file
 	val := "on"
 	if !req.Enabled {
 		val = "off"
@@ -412,7 +452,6 @@ func (sh *SSLHandler) TogglePgBouncerSSL(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Write restart signal file — PgBouncer watcher will pick it up
 	if err := os.WriteFile(sh.pgbouncerRestartSignalPath(), []byte("1"), 0644); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to write restart signal: "+err.Error())
 		return

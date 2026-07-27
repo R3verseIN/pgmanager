@@ -63,7 +63,19 @@ func main() {
 	ah := handler.NewAuthHandler(pool)
 	sh := handler.NewSettingsHandler(pool)
 	wh := handler.NewWalgHandler(pool)
-	ssh := handler.NewSSLHandler(pool, "/var/lib/postgresql/data")
+	sshKeyPath := os.Getenv("SSH_KEY_PATH")
+	if sshKeyPath == "" {
+		sshKeyPath = "/root/.shared-ssh/pgmanager_ed25519"
+	}
+	sshUser := os.Getenv("SSH_USER")
+	if sshUser == "" {
+		sshUser = "root"
+	}
+	sshHost := os.Getenv("SSH_HOST")
+	if sshHost == "" {
+		sshHost = "db"
+	}
+	ssh := handler.NewSSLHandler("/var/lib/postgresql/data", sshKeyPath, sshUser, sshHost)
 
 	if err := h.InitUserSchema(ctx); err != nil {
 		log.Printf("warning: failed to init user schema: %v", err)
@@ -329,6 +341,10 @@ func main() {
 		}
 		if method == "DELETE" && path == "/api/ssl" {
 			ssh.DeleteCerts(w, r)
+			return
+		}
+		if method == "DELETE" && path == "/api/ssl/files" {
+			ssh.DeleteCertFiles(w, r)
 			return
 		}
 		if method == "POST" && path == "/api/ssl/pgbouncer" {
