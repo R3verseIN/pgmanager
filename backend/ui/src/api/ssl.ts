@@ -38,14 +38,22 @@ export async function uploadSSLCerts(formData: FormData): Promise<{
   });
 }
 
-export async function downloadCACert(): Promise<Blob> {
-  const response = await fetch("/api/ssl/download", {
-    credentials: "include",
+export async function enableSSLCerts(): Promise<{
+  status: string;
+  message: string;
+}> {
+  return request("/ssl/enable", {
+    method: "POST",
   });
-  if (!response.ok) {
-    throw new Error("Failed to download CA certificate");
-  }
-  return response.blob();
+}
+
+export async function disableSSLCerts(): Promise<{
+  status: string;
+  message: string;
+}> {
+  return request("/ssl/disable", {
+    method: "POST",
+  });
 }
 
 export async function deleteSSLCerts(): Promise<{
@@ -57,6 +65,16 @@ export async function deleteSSLCerts(): Promise<{
   });
 }
 
+export async function downloadCACert(): Promise<Blob> {
+  const response = await fetch("/api/ssl/download", {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to download CA certificate");
+  }
+  return response.blob();
+}
+
 export async function togglePgBouncerSSL(enabled: boolean): Promise<{
   status: string;
   message: string;
@@ -66,5 +84,3 @@ export async function togglePgBouncerSSL(enabled: boolean): Promise<{
     body: JSON.stringify({ enabled }),
   });
 }
-
-

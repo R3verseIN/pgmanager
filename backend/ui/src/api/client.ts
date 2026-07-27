@@ -67,8 +67,10 @@ export {
   fetchSSLStatus,
   generateSSLCerts,
   uploadSSLCerts,
-  downloadCACert,
+  enableSSLCerts,
+  disableSSLCerts,
   deleteSSLCerts,
+  downloadCACert,
   togglePgBouncerSSL,
 } from "./ssl";
 export type { SSLStatus, GenerateCertRequest } from "./ssl";

@@ -339,12 +339,16 @@ func main() {
 			ssh.DownloadCA(w, r)
 			return
 		}
-		if method == "DELETE" && path == "/api/ssl" {
-			ssh.DeleteCerts(w, r)
+		if method == "POST" && path == "/api/ssl/enable" {
+			ssh.EnableCerts(w, r)
 			return
 		}
-		if method == "DELETE" && path == "/api/ssl/files" {
-			ssh.DeleteCertFiles(w, r)
+		if method == "POST" && path == "/api/ssl/disable" {
+			ssh.DisableCerts(w, r)
+			return
+		}
+		if method == "DELETE" && path == "/api/ssl" {
+			ssh.DeleteCerts(w, r)
 			return
 		}
 		if method == "POST" && path == "/api/ssl/pgbouncer" {

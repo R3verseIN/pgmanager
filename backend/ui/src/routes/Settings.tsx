@@ -11,8 +11,10 @@ import {
   fetchSSLStatus,
   generateSSLCerts,
   uploadSSLCerts,
-  downloadCACert,
+  enableSSLCerts,
+  disableSSLCerts,
   deleteSSLCerts,
+  downloadCACert,
   togglePgBouncerSSL,
 } from "../api/client";
 import type { PgBouncerDatabase, PgBouncerConfig } from "../api/client";
@@ -147,6 +149,20 @@ export default function Settings() {
     },
   });
 
+  const enableMutation = useMutation({
+    mutationFn: enableSSLCerts,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ssl-status"] });
+    },
+  });
+
+  const disableMutation = useMutation({
+    mutationFn: disableSSLCerts,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ssl-status"] });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: deleteSSLCerts,
     onSuccess: () => {
@@ -228,7 +244,7 @@ export default function Settings() {
 
             </div>
             <p className="text-xs text-ink-muted">
-              Secure external PostgreSQL connections with SSL/TLS encryption
+              Secure PostgreSQL connections with SSL/TLS encryption
             </p>
           </div>
         </div>
@@ -303,12 +319,41 @@ export default function Settings() {
                     <Download className="mr-1 size-4" />
                     Download CA
                   </Button>
+                  {sslStatus?.enabled ? (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={disableMutation.isPending}
+                      onClick={() => disableMutation.mutate()}
+                    >
+                      {disableMutation.isPending ? (
+                        <Loader2 className="mr-1 size-4 animate-spin" />
+                      ) : (
+                        <AlertTriangle className="mr-1 size-4" />
+                      )}
+                      Disable SSL
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={enableMutation.isPending}
+                      onClick={() => enableMutation.mutate()}
+                    >
+                      {enableMutation.isPending ? (
+                        <Loader2 className="mr-1 size-4 animate-spin" />
+                      ) : (
+                        <Lock className="mr-1 size-4" />
+                      )}
+                      Enable SSL
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="destructive"
                     disabled={deleteMutation.isPending}
                     onClick={() => {
-                      if (confirm("Disable SSL and remove certificates? This will require clients to reconnect without SSL.")) {
+                      if (confirm("Remove SSL certificates permanently? This cannot be undone.")) {
                         deleteMutation.mutate();
                       }
                     }}
@@ -318,7 +363,7 @@ export default function Settings() {
                     ) : (
                       <AlertTriangle className="mr-1 size-4" />
                     )}
-                    Disable SSL
+                    Remove Certs
                   </Button>
                 </>
               )}

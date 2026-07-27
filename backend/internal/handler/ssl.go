@@ -255,9 +255,35 @@ func (sh *SSLHandler) DownloadCA(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, caPath)
 }
 
-// DELETE /api/ssl — disables SSL without deleting cert files.
+// POST /api/ssl/enable — re-enables SSL using existing cert files on disk.
+func (sh *SSLHandler) EnableCerts(w http.ResponseWriter, r *http.Request) {
+	if !sh.fileExists(sh.certPath("server.crt")) || !sh.fileExists(sh.certPath("server.key")) {
+		writeError(w, http.StatusBadRequest, "no certificate files found — generate or upload certificates first")
+		return
+	}
+
+	if sh.isSSLEnabled() {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "enabled",
+			"message": "SSL is already enabled.",
+		})
+		return
+	}
+
+	if err := sh.enableSSL(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to enable SSL: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "enabled",
+		"message": "SSL enabled using existing certificates.",
+	})
+}
+
+// POST /api/ssl/disable — disables SSL without deleting cert files.
 // Cert files stay on disk so re-enabling is instant.
-func (sh *SSLHandler) DeleteCerts(w http.ResponseWriter, r *http.Request) {
+func (sh *SSLHandler) DisableCerts(w http.ResponseWriter, r *http.Request) {
 	// Disable SSL via SSH — ALTER SYSTEM + restart (SSL is postmaster-level)
 	if err := sh.disableSSL(); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to disable SSL: "+err.Error())
@@ -270,8 +296,8 @@ func (sh *SSLHandler) DeleteCerts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DELETE /api/ssl/files — permanently removes cert files.
-func (sh *SSLHandler) DeleteCertFiles(w http.ResponseWriter, r *http.Request) {
+// DELETE /api/ssl — permanently removes cert files and disables SSL.
+func (sh *SSLHandler) DeleteCerts(w http.ResponseWriter, r *http.Request) {
 	// First disable SSL if it's on
 	if sh.isSSLEnabled() {
 		if err := sh.disableSSL(); err != nil {
