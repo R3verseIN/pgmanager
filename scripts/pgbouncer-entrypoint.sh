@@ -38,20 +38,11 @@ write_tls_config() {
         cat >> /etc/pgbouncer/shared/pgbouncer.ini <<EOF
 
 ; Client TLS (enabled by pgmanager)
-client_tls_sslmode = allow
+client_tls_sslmode = require
 client_tls_cert_file = $CERT_FILE
 client_tls_key_file = $KEY_FILE
-client_tls_ca_file = $CA_FILE
 EOF
-        if [ -f "$CA_FILE" ]; then
-            cat >> /etc/pgbouncer/shared/pgbouncer.ini <<EOF
-
-; Server TLS (PgBouncer -> PostgreSQL)
-server_tls_sslmode = verify-ca
-server_tls_ca_file = $CA_FILE
-EOF
-        fi
-        echo "pgmanager-pgbouncer: client TLS enabled"
+        echo "pgmanager-pgbouncer: client TLS enabled (terminating at PgBouncer)"
     else
         echo "pgmanager-pgbouncer: TLS disabled"
     fi

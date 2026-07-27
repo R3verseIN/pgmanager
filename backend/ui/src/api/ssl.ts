@@ -6,7 +6,6 @@ export interface SSLStatus {
   expiry?: string;
   issuer?: string;
   selfSigned?: boolean;
-  pgBouncerSSL: boolean;
 }
 
 export interface GenerateCertRequest {
@@ -75,12 +74,3 @@ export async function downloadCACert(): Promise<Blob> {
   return response.blob();
 }
 
-export async function togglePgBouncerSSL(enabled: boolean): Promise<{
-  status: string;
-  message: string;
-}> {
-  return request("/ssl/pgbouncer", {
-    method: "POST",
-    body: JSON.stringify({ enabled }),
-  });
-}

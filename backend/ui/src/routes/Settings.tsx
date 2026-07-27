@@ -15,7 +15,6 @@ import {
   disableSSLCerts,
   deleteSSLCerts,
   downloadCACert,
-  togglePgBouncerSSL,
 } from "../api/client";
 import type { PgBouncerDatabase, PgBouncerConfig } from "../api/client";
 import { DatabaseAccessRow } from "../components/DatabaseAccessRow";
@@ -23,7 +22,7 @@ import { Select, SelectTrigger, SelectContent, SelectItem } from "../components/
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Button } from "../components/ui/button";
-import { Switch } from "../components/ui/switch";
+
 import { Badge } from "../components/ui/badge";
 
 export default function Settings() {
@@ -170,12 +169,6 @@ export default function Settings() {
     },
   });
 
-  const pgbouncerSSLMutation = useMutation({
-    mutationFn: togglePgBouncerSSL,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["ssl-status"] });
-    },
-  });
 
   const handleUpload = () => {
     const certFile = uploadCertRef.current?.files?.[0];
@@ -363,7 +356,7 @@ export default function Settings() {
                     ) : (
                       <AlertTriangle className="mr-1 size-4" />
                     )}
-                    Remove Certs
+                    Disable &amp; Remove SSL
                   </Button>
                 </>
               )}
@@ -476,26 +469,6 @@ export default function Settings() {
               </div>
             )}
 
-            {/* PgBouncer SSL Toggle */}
-            {sslStatus?.hasCerts && (
-              <div className="flex items-center justify-between rounded-md bg-surface-2 p-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    PgBouncer Client TLS
-                  </p>
-                  <p className="text-xs text-ink-muted">
-                    Accept SSL connections from clients through PgBouncer
-                  </p>
-                </div>
-                <Switch
-                  checked={sslStatus.pgBouncerSSL}
-                  disabled={pgbouncerSSLMutation.isPending}
-                  onCheckedChange={(checked) =>
-                    pgbouncerSSLMutation.mutate(checked)
-                  }
-                />
-              </div>
-            )}
           </div>
         )}
       </div>

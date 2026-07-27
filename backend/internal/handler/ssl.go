@@ -10,44 +10,30 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"pgmanager/internal/sshcmd"
 )
 
 type SSLHandler struct {
-	dataDir    string
-	sshKeyPath string
-	sshUser    string
-	sshHost    string
+	dataDir string
 }
 
-func NewSSLHandler(dataDir, sshKeyPath, sshUser, sshHost string) *SSLHandler {
+func NewSSLHandler(dataDir string) *SSLHandler {
 	return &SSLHandler{
-		dataDir:    dataDir,
-		sshKeyPath: sshKeyPath,
-		sshUser:    sshUser,
-		sshHost:    sshHost,
+		dataDir: dataDir,
 	}
 }
 
 type sslStatus struct {
-	Enabled      bool   `json:"enabled"`
-	HasCerts     bool   `json:"hasCerts"`
-	Expiry       string `json:"expiry,omitempty"`
-	Issuer       string `json:"issuer,omitempty"`
-	SelfSigned   bool   `json:"selfSigned"`
-	PgBouncerSSL bool   `json:"pgBouncerSSL"`
-}
-
-type pgbouncerSSLRequest struct {
-	Enabled bool `json:"enabled"`
+	Enabled    bool   `json:"enabled"`
+	HasCerts   bool   `json:"hasCerts"`
+	Expiry     string `json:"expiry,omitempty"`
+	Issuer     string `json:"issuer,omitempty"`
+	SelfSigned bool   `json:"selfSigned"`
 }
 
 type generateRequest struct {
@@ -72,15 +58,6 @@ func (sh *SSLHandler) pgbouncerRestartSignalPath() string {
 	return "/etc/pgbouncer/shared/pgbouncer-restart-signal"
 }
 
-// isSSLEnabled checks postgresql.auto.conf for ssl = 'on'.
-func (sh *SSLHandler) isSSLEnabled() bool {
-	autoConf := filepath.Join(sh.dataDir, "postgresql.auto.conf")
-	data, err := os.ReadFile(autoConf)
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(data), "ssl = 'on'")
-}
 
 // GET /api/ssl/status
 func (sh *SSLHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
@@ -88,9 +65,8 @@ func (sh *SSLHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	keyPath := sh.certPath("server.key")
 
 	status := sslStatus{
-		Enabled:      sh.isSSLEnabled(),
-		HasCerts:     sh.fileExists(certPath) && sh.fileExists(keyPath),
-		PgBouncerSSL: sh.isPgBouncerSSLEnabled(),
+		Enabled:  sh.isSSLEnabled(),
+		HasCerts: sh.fileExists(certPath) && sh.fileExists(keyPath),
 	}
 
 	if status.HasCerts {
@@ -284,7 +260,6 @@ func (sh *SSLHandler) EnableCerts(w http.ResponseWriter, r *http.Request) {
 // POST /api/ssl/disable — disables SSL without deleting cert files.
 // Cert files stay on disk so re-enabling is instant.
 func (sh *SSLHandler) DisableCerts(w http.ResponseWriter, r *http.Request) {
-	// Disable SSL via SSH — ALTER SYSTEM + restart (SSL is postmaster-level)
 	if err := sh.disableSSL(); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to disable SSL: "+err.Error())
 		return
@@ -317,181 +292,39 @@ func (sh *SSLHandler) DeleteCerts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// enableSSL sets ssl=on + cert paths via SSH, updates HBA, restarts PostgreSQL.
+// enableSSL writes the PgBouncer preference to "on" and signals a restart.
+// PgBouncer terminates TLS for clients; internal connection to Postgres is plaintext.
 func (sh *SSLHandler) enableSSL() error {
-	certPath := sh.certPath("server.crt")
-	keyPath := sh.certPath("server.key")
-	caPath := sh.certPath("root.crt")
-
-	// Run ALTER SYSTEM SET via SSH
-	commands := []string{
-		"ALTER SYSTEM SET ssl = 'on';",
-		fmt.Sprintf("ALTER SYSTEM SET ssl_cert_file = '%s';", certPath),
-		fmt.Sprintf("ALTER SYSTEM SET ssl_key_file = '%s';", keyPath),
+	if err := os.WriteFile(sh.pgbouncerSSLPrefPath(), []byte("on"), 0644); err != nil {
+		return fmt.Errorf("failed to write PgBouncer SSL preference: %w", err)
 	}
-	if sh.fileExists(caPath) {
-		commands = append(commands, fmt.Sprintf("ALTER SYSTEM SET ssl_ca_file = '%s';", caPath))
-	}
-
-	for _, cmd := range commands {
-		sql := fmt.Sprintf("psql -v ON_ERROR_STOP=1 -U pgmanager -d postgres -c \"%s\"", cmd)
-		if _, stderr, err := sshcmd.Exec(sh.sshKeyPath, sh.sshUser, sh.sshHost, sql); err != nil {
-			return fmt.Errorf("SSH exec %q: %w: %s", cmd, err, stderr)
-		}
-	}
-
-	// Update HBA rules to require SSL for external connections
-	sh.updateHBAForSSL(true)
-
-	// Restart PostgreSQL (SSL cert settings require restart, not just reload)
-	if err := sshcmd.RestartPostgreSQL(sh.sshKeyPath, sh.sshUser, sh.sshHost); err != nil {
-		return fmt.Errorf("restart PostgreSQL: %w", err)
-	}
-
-	return nil
-}
-
-// disableSSL sets ssl=off via SSH, updates HBA, restarts PostgreSQL.
-func (sh *SSLHandler) disableSSL() error {
-	commands := []string{
-		"ALTER SYSTEM SET ssl = 'off';",
-		"ALTER SYSTEM RESET ssl_cert_file;",
-		"ALTER SYSTEM RESET ssl_key_file;",
-		"ALTER SYSTEM RESET ssl_ca_file;",
-	}
-
-	for _, cmd := range commands {
-		sql := fmt.Sprintf("psql -v ON_ERROR_STOP=1 -U pgmanager -d postgres -c \"%s\"", cmd)
-		if _, stderr, err := sshcmd.Exec(sh.sshKeyPath, sh.sshUser, sh.sshHost, sql); err != nil {
-			return fmt.Errorf("SSH exec %q: %w: %s", cmd, err, stderr)
-		}
-	}
-
-	// Update HBA rules to allow non-SSL for external connections
-	sh.updateHBAForSSL(false)
-
-	// Restart PostgreSQL (SSL cert settings require restart)
-	if err := sshcmd.RestartPostgreSQL(sh.sshKeyPath, sh.sshUser, sh.sshHost); err != nil {
-		return fmt.Errorf("restart PostgreSQL: %w", err)
-	}
-
-	return nil
-}
-
-func (sh *SSLHandler) updateHBAForSSL(requireSSL bool) {
-	hbaPath := filepath.Join(sh.dataDir, "pg_hba.conf")
-	data, err := os.ReadFile(hbaPath)
-	if err != nil {
-		return
-	}
-	content := string(data)
-
-	if requireSSL {
-		content = replaceExternalHBA(content, "hostssl")
-	} else {
-		content = replaceExternalHBA(content, "host")
-	}
-
-	os.WriteFile(hbaPath, []byte(content), 0644)
-	log.Printf("pgmanager: HBA rules updated (require_ssl=%v)", requireSSL)
-}
-
-func replaceExternalHBA(content, newType string) string {
-	lines := splitLines(content)
-	result := make([]string, 0, len(lines))
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || trimmed[0] == '#' {
-			result = append(result, line)
-			continue
-		}
-		isExternal := strings.Contains(trimmed, " all all 0.0.0.0/0 ") ||
-			strings.Contains(trimmed, " all all ::0/0 ") ||
-			strings.HasSuffix(trimmed, " all all 0.0.0.0/0") ||
-			strings.HasSuffix(trimmed, " all all ::0/0")
-		isInternalNet := strings.Contains(trimmed, "172.16.") || strings.Contains(trimmed, "192.168.") || strings.Contains(trimmed, "10.")
-		isHostOrSSL := strings.HasPrefix(trimmed, "host ") || strings.HasPrefix(trimmed, "hostssl ")
-
-		if isHostOrSSL && isExternal && !isInternalNet {
-			suffix := line[len(trimmed):]
-			idx := strings.Index(trimmed, " ")
-			line = newType + trimmed[idx:] + suffix
-		}
-		result = append(result, line)
-	}
-	return joinLines(result)
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i+1])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
-
-func joinLines(lines []string) string {
-	result := ""
-	for _, line := range lines {
-		result += line
-	}
-	return result
-}
-
-func (sh *SSLHandler) isPgBouncerSSLEnabled() bool {
-	prefPath := sh.pgbouncerSSLPrefPath()
-	if sh.fileExists(prefPath) {
-		data, err := os.ReadFile(prefPath)
-		if err == nil {
-			return string(data) != "off"
-		}
-	}
-	return sh.fileExists(sh.certPath("server.crt")) && sh.fileExists(sh.certPath("server.key"))
-}
-
-// POST /api/ssl/pgbouncer — toggle PgBouncer client TLS
-func (sh *SSLHandler) TogglePgBouncerSSL(w http.ResponseWriter, r *http.Request) {
-	var req pgbouncerSSLRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-
-	if req.Enabled && !sh.fileExists(sh.certPath("server.crt")) {
-		writeError(w, http.StatusBadRequest, "SSL certificates must be generated or uploaded before enabling PgBouncer SSL")
-		return
-	}
-
-	val := "on"
-	if !req.Enabled {
-		val = "off"
-	}
-	if err := os.WriteFile(sh.pgbouncerSSLPrefPath(), []byte(val), 0644); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save PgBouncer SSL preference: "+err.Error())
-		return
-	}
-
 	if err := os.WriteFile(sh.pgbouncerRestartSignalPath(), []byte("1"), 0644); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to write restart signal: "+err.Error())
-		return
+		return fmt.Errorf("failed to write PgBouncer restart signal: %w", err)
 	}
+	return nil
+}
 
-	state := "disabled"
-	if req.Enabled {
-		state = "enabled"
+// disableSSL writes the PgBouncer preference to "off" and signals a restart.
+func (sh *SSLHandler) disableSSL() error {
+	if err := os.WriteFile(sh.pgbouncerSSLPrefPath(), []byte("off"), 0644); err != nil {
+		return fmt.Errorf("failed to write PgBouncer SSL preference: %w", err)
 	}
+	if err := os.WriteFile(sh.pgbouncerRestartSignalPath(), []byte("1"), 0644); err != nil {
+		return fmt.Errorf("failed to write PgBouncer restart signal: %w", err)
+	}
+	return nil
+}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status":  state,
-		"message": fmt.Sprintf("PgBouncer SSL %s. Restarting...", state),
-	})
+
+// isSSLEnabled checks the PgBouncer preference file as the single source of truth.
+func (sh *SSLHandler) isSSLEnabled() bool {
+	prefPath := sh.pgbouncerSSLPrefPath()
+	data, err := os.ReadFile(prefPath)
+	if err != nil {
+		// No preference file: SSL is enabled if certs exist on disk
+		return sh.fileExists(sh.certPath("server.crt")) && sh.fileExists(sh.certPath("server.key"))
+	}
+	return strings.TrimSpace(string(data)) != "off"
 }
 
 func (sh *SSLHandler) generateCA(cn string, validityDays int) (*ecdsa.PrivateKey, *x509.Certificate, []byte, error) {
