@@ -1,17 +1,8 @@
 #!/bin/sh
 set -e
 
-# === FIRST PASS (root): SSH setup + start sshd ===
+# === FIRST PASS (root): switch to postgres user ===
 if [ "$(id -u)" = '0' ]; then
-    ssh-keygen -A 2>/dev/null || true
-    mkdir -p /root/.ssh /var/run/sshd /root/.shared-ssh
-    ssh-keygen -t ed25519 -f /root/.ssh/pgmanager_ed25519 -N "" -q
-    cat /root/.ssh/pgmanager_ed25519.pub > /root/.ssh/authorized_keys
-    chmod 700 /root/.ssh
-    chmod 600 /root/.ssh/authorized_keys /root/.ssh/pgmanager_ed25519
-    cp /root/.ssh/pgmanager_ed25519 /root/.shared-ssh/pgmanager_ed25519
-    chmod 600 /root/.shared-ssh/pgmanager_ed25519
-    /usr/sbin/sshd
     exec gosu postgres "$0" "$@"
 fi
 
