@@ -225,11 +225,7 @@ export default function Settings() {
               ) : (
                 <Badge variant="secondary">Inactive</Badge>
               )}
-              {sslStatus?.pendingRestart && (
-                <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
-                  Restart Required
-                </span>
-              )}
+
             </div>
             <p className="text-xs text-ink-muted">
               Secure external PostgreSQL connections with SSL/TLS encryption
@@ -444,11 +440,6 @@ export default function Settings() {
                   </p>
                   <p className="text-xs text-ink-muted">
                     Accept SSL connections from clients through PgBouncer
-                    {sslStatus.pendingRestart && (
-                      <span className="ml-1 text-amber-500">
-                        (restart pgbouncer container to apply)
-                      </span>
-                    )}
                   </p>
                 </div>
                 <Switch

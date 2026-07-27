@@ -31,12 +31,12 @@ func NewSSLHandler(pool *pgxpool.Pool, dataDir string) *SSLHandler {
 }
 
 type sslStatus struct {
-	Enabled    bool   `json:"enabled"`
-	HasCerts   bool   `json:"hasCerts"`
-	Expiry     string `json:"expiry,omitempty"`
-	Issuer     string `json:"issuer,omitempty"`
-	SelfSigned bool   `json:"selfSigned"`
-	PgBouncerSSL bool `json:"pgBouncerSSL"`
+	Enabled      bool   `json:"enabled"`
+	HasCerts     bool   `json:"hasCerts"`
+	Expiry       string `json:"expiry,omitempty"`
+	Issuer       string `json:"issuer,omitempty"`
+	SelfSigned   bool   `json:"selfSigned"`
+	PgBouncerSSL bool   `json:"pgBouncerSSL"`
 }
 
 type pgbouncerSSLRequest struct {
@@ -57,10 +57,6 @@ func (sh *SSLHandler) fileExists(path string) bool {
 	return err == nil
 }
 
-func (sh *SSLHandler) sslPrefPath() string {
-	return filepath.Join(sh.dataDir, "pgmanager-ssl-enabled")
-}
-
 func (sh *SSLHandler) pgbouncerSSLPrefPath() string {
 	return filepath.Join(sh.dataDir, "pgmanager-pgbouncer-ssl")
 }
@@ -69,13 +65,24 @@ func (sh *SSLHandler) pgbouncerRestartSignalPath() string {
 	return "/etc/pgbouncer/shared/pgbouncer-restart-signal"
 }
 
+// isSSLEnabled checks postgresql.auto.conf for ssl = 'on'.
+// This is the single source of truth — no preference file.
+func (sh *SSLHandler) isSSLEnabled() bool {
+	autoConf := filepath.Join(sh.dataDir, "postgresql.auto.conf")
+	data, err := os.ReadFile(autoConf)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "ssl = 'on'")
+}
+
 // GET /api/ssl/status
 func (sh *SSLHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	certPath := sh.certPath("server.crt")
 	keyPath := sh.certPath("server.key")
 
 	status := sslStatus{
-		Enabled:      sh.isSSLPostgresEnabled(),
+		Enabled:      sh.isSSLEnabled(),
 		HasCerts:     sh.fileExists(certPath) && sh.fileExists(keyPath),
 		PgBouncerSSL: sh.isPgBouncerSSLEnabled(),
 	}
@@ -126,14 +133,14 @@ func (sh *SSLHandler) GenerateCerts(w http.ResponseWriter, r *http.Request) {
 
 	sh.chownCertFiles()
 
-	if err := sh.enableSSLPostgres(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to enable SSL in PostgreSQL: "+err.Error())
+	if err := sh.enableSSL(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to enable SSL: "+err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "generated",
-		"message": "SSL certificates generated and enabled. New certificates will take effect on next PostgreSQL restart.",
+		"message": "SSL certificates generated and enabled.",
 	})
 }
 
@@ -219,14 +226,14 @@ func (sh *SSLHandler) UploadCerts(w http.ResponseWriter, r *http.Request) {
 
 	sh.chownCertFiles()
 
-	if err := sh.enableSSLPostgres(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to enable SSL in PostgreSQL: "+err.Error())
+	if err := sh.enableSSL(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to enable SSL: "+err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "uploaded",
-		"message": "SSL certificates uploaded and enabled. New certificates will take effect on next PostgreSQL restart.",
+		"message": "SSL certificates uploaded and enabled.",
 	})
 }
 
@@ -244,47 +251,40 @@ func (sh *SSLHandler) DownloadCA(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/ssl
 func (sh *SSLHandler) DeleteCerts(w http.ResponseWriter, r *http.Request) {
-	if err := sh.disableSSLPostgres(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to disable SSL in PostgreSQL: "+err.Error())
-		return
+	// Disable SSL in postgresql.auto.conf (for next restart)
+	commands := []string{
+		"ALTER SYSTEM SET ssl = 'off';",
+		"ALTER SYSTEM RESET ssl_cert_file;",
+		"ALTER SYSTEM RESET ssl_key_file;",
+		"ALTER SYSTEM RESET ssl_ca_file;",
+		"SELECT pg_reload_conf();",
+	}
+	for _, cmd := range commands {
+		if _, err := sh.pool.Exec(context.Background(), cmd); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to disable SSL: "+err.Error())
+			return
+		}
 	}
 
+	// Remove cert files
 	for _, name := range []string{"server.crt", "server.key", "root.crt", "root.key"} {
 		os.Remove(sh.certPath(name))
 	}
 
+	// Update HBA rules to allow non-SSL for external connections
+	sh.updateHBAForSSL(false)
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "deleted",
-		"message": "SSL certificates removed and SSL disabled. Change will take effect on next PostgreSQL restart.",
+		"message": "SSL certificates removed. Non-SSL connections now allowed.",
 	})
 }
 
-// isSSLPostgresEnabled checks if SSL is configured by reading the preference file
-// and verifying certs exist. More reliable than SHOW ssl which shows the configured
-// value, not the actual runtime state.
-func (sh *SSLHandler) isSSLPostgresEnabled() bool {
-	prefPath := sh.sslPrefPath()
-	if sh.fileExists(prefPath) {
-		data, err := os.ReadFile(prefPath)
-		if err == nil && string(data) == "off" {
-			return false
-		}
-	}
-	// Default: check if certs exist (first boot defaults to on)
-	certPath := sh.certPath("server.crt")
-	keyPath := sh.certPath("server.key")
-	return sh.fileExists(certPath) && sh.fileExists(keyPath)
-}
-
-func (sh *SSLHandler) enableSSLPostgres() error {
+// enableSSL sets ssl=on + cert paths in postgresql.auto.conf, updates HBA, reloads.
+func (sh *SSLHandler) enableSSL() error {
 	certPath := sh.certPath("server.crt")
 	keyPath := sh.certPath("server.key")
 	caPath := sh.certPath("root.crt")
-
-	// Write SSL preference file
-	if err := os.WriteFile(sh.sslPrefPath(), []byte("on"), 0644); err != nil {
-		return fmt.Errorf("write ssl preference: %w", err)
-	}
 
 	commands := []string{
 		"ALTER SYSTEM SET ssl = 'on';",
@@ -304,31 +304,6 @@ func (sh *SSLHandler) enableSSLPostgres() error {
 
 	// Update HBA rules to require SSL for external connections
 	sh.updateHBAForSSL(true)
-
-	return nil
-}
-
-func (sh *SSLHandler) disableSSLPostgres() error {
-	// Write SSL preference file
-	if err := os.WriteFile(sh.sslPrefPath(), []byte("off"), 0644); err != nil {
-		return fmt.Errorf("write ssl preference: %w", err)
-	}
-
-	commands := []string{
-		"ALTER SYSTEM SET ssl = 'off';",
-		"ALTER SYSTEM RESET ssl_cert_file;",
-		"ALTER SYSTEM RESET ssl_key_file;",
-		"ALTER SYSTEM RESET ssl_ca_file;",
-		"SELECT pg_reload_conf();",
-	}
-	for _, cmd := range commands {
-		if _, err := sh.pool.Exec(context.Background(), cmd); err != nil {
-			return fmt.Errorf("exec %q: %w", cmd, err)
-		}
-	}
-
-	// Update HBA rules to allow non-SSL for external connections
-	sh.updateHBAForSSL(false)
 
 	return nil
 }

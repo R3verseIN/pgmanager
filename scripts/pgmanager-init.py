@@ -4,7 +4,8 @@ pgmanager-init: PostgreSQL-level self-healing script.
 
 Runs on every startup (after PostgreSQL is ready).
 Validates env vars, ensures users/functions/password files exist.
-Configures SSL based on preference file and certificate presence.
+Configures SSL: ssl=on is set once at first boot and never toggled.
+Cert files are the source of truth — if they exist, SSL is on.
 """
 
 import os
@@ -16,7 +17,6 @@ from pathlib import Path
 DATA_DIR = Path("/var/lib/postgresql/data")
 PASSWORD_FILE = DATA_DIR / "pgmanager-password"
 AUTH_PASSWORD_FILE = DATA_DIR / "pgbouncer-auth-password"
-SSL_PREF_FILE = DATA_DIR / "pgmanager-ssl-enabled"
 PGBOUNCER_SSL_PREF_FILE = DATA_DIR / "pgmanager-pgbouncer-ssl"
 
 
@@ -144,17 +144,6 @@ def ensure_hba_rules() -> None:
         return
 
     if "scram-sha-256" in content:
-        # Determine external rule based on SSL preference
-        ssl_pref_path = DATA_DIR / "pgmanager-ssl-enabled"
-        ssl_enabled = "on"
-        if ssl_pref_path.exists():
-            ssl_enabled = ssl_pref_path.read_text().strip()
-
-        if ssl_enabled == "off":
-            external_rule = "host all all 0.0.0.0/0 scram-sha-256\nhost all all ::0/0 scram-sha-256"
-        else:
-            external_rule = "hostssl all all 0.0.0.0/0 scram-sha-256\nhostssl all all ::0/0 scram-sha-256"
-
         new_rules = (
             "# pgmanager-init: managed (scram-sha-256 auth)\n"
             "host all pgmanager 172.16.0.0/12 scram-sha-256\n"
@@ -169,7 +158,8 @@ def ensure_hba_rules() -> None:
             "host all pgbouncer_auth 192.168.0.0/16 trust\n"
             "host all pgbouncer_auth 10.0.0.0/8 trust\n"
             "# External connections\n"
-            f"{external_rule}\n"
+            "hostssl all all 0.0.0.0/0 scram-sha-256\n"
+            "hostssl all all ::0/0 scram-sha-256\n"
         )
         content = re.sub(
             r'host\s+all\s+all\s+all\s+scram-sha-256',
@@ -316,37 +306,36 @@ def generate_self_signed_certs() -> None:
 
 
 def configure_ssl() -> None:
-    """Configure SSL based on preference file and certificate presence."""
+    """Configure SSL based on postgresql.auto.conf state."""
     print("pgmanager-init: configuring SSL...")
 
     cert_path = DATA_DIR / "server.crt"
     key_path = DATA_DIR / "server.key"
     ca_path = DATA_DIR / "root.crt"
+    auto_conf = DATA_DIR / "postgresql.auto.conf"
 
-    # Read user's SSL preference (default: "on" for first boot)
-    ssl_enabled = "on"
-    if SSL_PREF_FILE.exists():
-        ssl_enabled = SSL_PREF_FILE.read_text().strip()
+    # Read current ssl setting from postgresql.auto.conf
+    ssl_is_on = False
+    if auto_conf.exists():
+        content = auto_conf.read_text()
+        ssl_is_on = "ssl = 'on'" in content or 'ssl = "on"' in content
 
-    if ssl_enabled == "off":
-        print("pgmanager-init: SSL preference is off, disabling SSL")
-        run_sql("ALTER SYSTEM SET ssl = 'off';")
+    if not ssl_is_on:
+        print("pgmanager-init: SSL disabled, ensuring HBA allows non-SSL")
         update_hba_rules_for_ssl(require_ssl=False)
         return
 
-    # SSL is enabled (default or explicit "on")
-    # Generate self-signed certs if none exist
+    # SSL is on — ensure certs exist (regenerate if missing)
     if not cert_path.exists() or not key_path.exists():
         generate_self_signed_certs()
 
+    # Ensure cert paths are set (idempotent, safe to repeat)
     print("pgmanager-init: enabling SSL...")
-    run_sql("ALTER SYSTEM SET ssl = 'on';")
     run_sql(f"ALTER SYSTEM SET ssl_cert_file = '{cert_path}';")
     run_sql(f"ALTER SYSTEM SET ssl_key_file = '{key_path}';")
     if ca_path.exists():
         run_sql(f"ALTER SYSTEM SET ssl_ca_file = '{ca_path}';")
 
-    # Update HBA rules to require SSL for external connections
     update_hba_rules_for_ssl(require_ssl=True)
     print("pgmanager-init: SSL enabled")
 

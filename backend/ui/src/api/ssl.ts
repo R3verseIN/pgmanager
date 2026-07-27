@@ -7,7 +7,6 @@ export interface SSLStatus {
   issuer?: string;
   selfSigned?: boolean;
   pgBouncerSSL: boolean;
-  pendingRestart: boolean;
 }
 
 export interface GenerateCertRequest {
@@ -68,11 +67,4 @@ export async function togglePgBouncerSSL(enabled: boolean): Promise<{
   });
 }
 
-export async function applyPgBouncerSSL(): Promise<{
-  status: string;
-  message: string;
-}> {
-  return request("/ssl/pgbouncer/apply", {
-    method: "POST",
-  });
-}
+

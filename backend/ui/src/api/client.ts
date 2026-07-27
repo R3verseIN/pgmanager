@@ -70,7 +70,6 @@ export {
   downloadCACert,
   deleteSSLCerts,
   togglePgBouncerSSL,
-  applyPgBouncerSSL,
 } from "./ssl";
 export type { SSLStatus, GenerateCertRequest } from "./ssl";
 export {
