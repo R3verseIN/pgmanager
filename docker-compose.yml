@@ -21,7 +21,6 @@ services:
       WALG_BACKUP_RETENTION_DAYS: ${WALG_BACKUP_RETENTION_DAYS:-7}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - shared-ssh:/root/.shared-ssh
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pgmanager -d pgmanager"]
       interval: 2s
@@ -43,9 +42,6 @@ services:
       PGUSER: pgmanager
       PGDATABASE: pgmanager
       PGBOUNCER_AUTH_PASSWORD: /var/lib/postgresql/data/pgbouncer-auth-password
-      SSH_KEY_PATH: /root/.shared-ssh/pgmanager_ed25519
-      SSH_USER: root
-      SSH_HOST: db
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_ENDPOINT: ${AWS_ENDPOINT:-}
@@ -58,7 +54,6 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - pgbouncer_shared:/etc/pgbouncer/shared
-      - shared-ssh:/root/.shared-ssh:ro
     depends_on:
       db:
         condition: service_healthy
@@ -79,4 +74,3 @@ services:
 volumes:
   pgdata:
   pgbouncer_shared:
-  shared-ssh:
