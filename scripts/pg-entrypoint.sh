@@ -10,7 +10,7 @@ fi
 # On first start (empty data dir), docker-entrypoint.sh handles init via initdb
 if [ -f /var/lib/postgresql/data/PG_VERSION ]; then
     echo "pgmanager: data directory exists, running repair checks..."
-    pg_ctl -D /var/lib/postgresql/data -l /tmp/pgmanager-init.log start -o "-c listen_addresses=''"
+    pg_ctl -D /var/lib/postgresql/data -l /tmp/pgmanager-init.log start -o "-c listen_addresses='' -c ssl=off"
 
     echo "pgmanager: waiting for PostgreSQL..."
     until pg_isready -U "${POSTGRES_USER}" -q; do

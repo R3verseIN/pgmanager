@@ -124,6 +124,8 @@ func (sh *SSLHandler) GenerateCerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sh.chownCertFiles()
+
 	if err := sh.enableSSLPostgres(); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to enable SSL in PostgreSQL: "+err.Error())
 		return
@@ -214,6 +216,8 @@ func (sh *SSLHandler) UploadCerts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to write cert files: "+err.Error())
 		return
 	}
+
+	sh.chownCertFiles()
 
 	if err := sh.enableSSLPostgres(); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to enable SSL in PostgreSQL: "+err.Error())
@@ -579,4 +583,20 @@ func (sh *SSLHandler) readCert(path string) *x509.Certificate {
 		return nil
 	}
 	return cert
+}
+
+const postgresUID = 70
+const postgresGID = 70
+
+func chownToPostgres(path string) {
+	os.Chown(path, postgresUID, postgresGID)
+}
+
+func (sh *SSLHandler) chownCertFiles() {
+	for _, name := range []string{"server.crt", "server.key", "root.crt", "root.key"} {
+		path := sh.certPath(name)
+		if _, err := os.Stat(path); err == nil {
+			chownToPostgres(path)
+		}
+	}
 }
