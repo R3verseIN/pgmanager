@@ -356,12 +356,19 @@ func replaceExternalHBA(content, newType string) string {
 			continue
 		}
 		// Match external rules: host/hostssl all all 0.0.0.0/0 or ::0/0
-		if (strings.HasPrefix(trimmed, "host ") || strings.HasPrefix(trimmed, "hostssl ")) &&
-			(strings.Contains(trimmed, " all 0.0.0.0/0 ") || strings.Contains(trimmed, " all ::0/0 ")) &&
-			!strings.Contains(trimmed, "172.16.") && !strings.Contains(trimmed, "192.168.") && !strings.Contains(trimmed, "10.") {
-			// Replace the type prefix
+		// HBA format: type database user address method (e.g. "hostssl all all 0.0.0.0/0 scram-sha-256")
+		isExternal := strings.Contains(trimmed, " all all 0.0.0.0/0 ") ||
+			strings.Contains(trimmed, " all all ::0/0 ") ||
+			strings.HasSuffix(trimmed, " all all 0.0.0.0/0") ||
+			strings.HasSuffix(trimmed, " all all ::0/0")
+		isInternalNet := strings.Contains(trimmed, "172.16.") || strings.Contains(trimmed, "192.168.") || strings.Contains(trimmed, "10.")
+		isHostOrSSL := strings.HasPrefix(trimmed, "host ") || strings.HasPrefix(trimmed, "hostssl ")
+
+		if isHostOrSSL && isExternal && !isInternalNet {
+			// Preserve trailing whitespace/newline from original line
+			suffix := line[len(trimmed):]
 			idx := strings.Index(trimmed, " ")
-			line = newType + trimmed[idx:]
+			line = newType + trimmed[idx:] + suffix
 		}
 		result = append(result, line)
 	}
