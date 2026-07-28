@@ -1,4 +1,4 @@
-package handler
+package pgbouncer
 
 import (
 	"context"
@@ -12,12 +12,39 @@ import (
 	"time"
 
 	"pgmanager/internal/auth"
+	"pgmanager/internal/handler/core"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var hbaFilePath = "/etc/pgbouncer/shared/pg_hba.conf"
 var pgbouncerIniPath = "/etc/pgbouncer/shared/pgbouncer.ini"
+
+type PgbouncerDatabase struct {
+	DatabaseName string `json:"databaseName"`
+	Allowed      bool   `json:"allowed"`
+	CreatedAt    string `json:"createdAt,omitempty"`
+	UpdatedAt    string `json:"updatedAt,omitempty"`
+}
+
+type PgbouncerConfig struct {
+	PoolMode        string `json:"poolMode"`
+	DefaultPoolSize int    `json:"defaultPoolSize"`
+	MaxClientConn   int    `json:"maxClientConn"`
+}
+
+type PgbouncerHandler struct {
+	pool    *pgxpool.Pool
+	baseDSN string
+}
+
+func New(pool *pgxpool.Pool, baseDSN string) *PgbouncerHandler {
+	return &PgbouncerHandler{
+		pool:    pool,
+		baseDSN: baseDSN,
+	}
+}
 
 func readPasswordFile(path string) string {
 	data, err := os.ReadFile(path)
@@ -28,27 +55,20 @@ func readPasswordFile(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
-type pgbouncerDatabase struct {
-	DatabaseName string `json:"databaseName"`
-	Allowed      bool   `json:"allowed"`
-	CreatedAt    string `json:"createdAt,omitempty"`
-	UpdatedAt    string `json:"updatedAt,omitempty"`
-}
-
-func (h *Handler) ListPgBouncerDatabases(w http.ResponseWriter, r *http.Request) {
+func (h *PgbouncerHandler) ListPgBouncerDatabases(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT database_name, allowed, created_at::text, updated_at::text FROM pgbouncer_databases ORDER BY database_name`)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list pgbouncer databases")
+		core.WriteError(w, http.StatusInternalServerError, "failed to list pgbouncer databases")
 		return
 	}
 	defer rows.Close()
 
-	databases := make([]pgbouncerDatabase, 0)
+	databases := make([]PgbouncerDatabase, 0)
 	for rows.Next() {
-		var db pgbouncerDatabase
+		var db PgbouncerDatabase
 		if err := rows.Scan(&db.DatabaseName, &db.Allowed, &db.CreatedAt, &db.UpdatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to scan row")
+			core.WriteError(w, http.StatusInternalServerError, "failed to scan row")
 			return
 		}
 		databases = append(databases, db)
@@ -59,24 +79,24 @@ func (h *Handler) ListPgBouncerDatabases(w http.ResponseWriter, r *http.Request)
 	if user != nil {
 		username = user.Username
 	}
-	h.writeAuditLog(r.Context(), auditEntry{
+	core.WriteAuditLog(h.pool, r.Context(), core.AuditEntry{
 		Username:  username,
 		Action:    "list_pgbouncer_databases",
-		IPAddress: clientIP(r),
+		IPAddress: core.ClientIP(r),
 		Detail:    map[string]interface{}{"count": len(databases)},
 	})
 
-	writeJSON(w, http.StatusOK, databases)
+	core.WriteJSON(w, http.StatusOK, databases)
 }
 
-func (h *Handler) TogglePgBouncerDatabase(w http.ResponseWriter, r *http.Request) {
+func (h *PgbouncerHandler) TogglePgBouncerDatabase(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/api/pgbouncer/databases/")
 	if name == "" {
-		writeError(w, http.StatusBadRequest, "database name is required")
+		core.WriteError(w, http.StatusBadRequest, "database name is required")
 		return
 	}
-	if !validName.MatchString(name) {
-		writeError(w, http.StatusBadRequest, "invalid database name")
+	if !core.ValidName.MatchString(name) {
+		core.WriteError(w, http.StatusBadRequest, "invalid database name")
 		return
 	}
 
@@ -84,7 +104,7 @@ func (h *Handler) TogglePgBouncerDatabase(w http.ResponseWriter, r *http.Request
 		Allowed bool `json:"allowed"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		core.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
@@ -92,11 +112,11 @@ func (h *Handler) TogglePgBouncerDatabase(w http.ResponseWriter, r *http.Request
 		`UPDATE pgbouncer_databases SET allowed = $1, updated_at = NOW() WHERE database_name = $2`,
 		req.Allowed, name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update pgbouncer database")
+		core.WriteError(w, http.StatusInternalServerError, "failed to update pgbouncer database")
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		writeError(w, http.StatusNotFound, "database not found in pgbouncer_databases")
+		core.WriteError(w, http.StatusNotFound, "database not found in pgbouncer_databases")
 		return
 	}
 
@@ -107,15 +127,15 @@ func (h *Handler) TogglePgBouncerDatabase(w http.ResponseWriter, r *http.Request
 	if user != nil {
 		username = user.Username
 	}
-	h.writeAuditLog(r.Context(), auditEntry{
+	core.WriteAuditLog(h.pool, r.Context(), core.AuditEntry{
 		Username:  username,
 		Action:    "toggle_pgbouncer_database",
 		Database:  name,
-		IPAddress: clientIP(r),
+		IPAddress: core.ClientIP(r),
 		Detail:    map[string]interface{}{"allowed": req.Allowed},
 	})
 
-	writeJSON(w, http.StatusOK, pgbouncerDatabase{DatabaseName: name, Allowed: req.Allowed})
+	core.WriteJSON(w, http.StatusOK, PgbouncerDatabase{DatabaseName: name, Allowed: req.Allowed})
 }
 
 // RebuildPgBouncerHBA regenerates the PgBouncer pg_hba.conf file with
@@ -134,7 +154,7 @@ func (h *Handler) TogglePgBouncerDatabase(w http.ResponseWriter, r *http.Request
 //
 // The file is written to /etc/pgbouncer/shared/pg_hba.conf (shared volume)
 // and PgBouncer is reloaded via its admin console.
-func (h *Handler) RebuildPgBouncerHBA() {
+func (h *PgbouncerHandler) RebuildPgBouncerHBA() {
 	ctx := context.Background()
 
 	rows, err := h.pool.Query(ctx, `
@@ -205,13 +225,12 @@ func (h *Handler) RebuildPgBouncerHBA() {
 
 	log.Println("PgBouncer HBA file regenerated successfully")
 
-	// Rebuild [databases] section from pgbouncer_databases table
 	h.rebuildPgBouncerDatabases(ctx)
 
 	h.reloadPgBouncer(ctx)
 }
 
-func (h *Handler) rebuildPgBouncerDatabases(ctx context.Context) {
+func (h *PgbouncerHandler) rebuildPgBouncerDatabases(ctx context.Context) {
 	rows, err := h.pool.Query(ctx,
 		`SELECT database_name FROM pgbouncer_databases WHERE allowed = true ORDER BY database_name`)
 	if err != nil {
@@ -230,7 +249,6 @@ func (h *Handler) rebuildPgBouncerDatabases(ctx context.Context) {
 		dbLines = append(dbLines, fmt.Sprintf("%s = host=db port=5432 dbname=%s", dbName, dbName))
 	}
 
-	// Read existing pgbouncer.ini
 	data, err := os.ReadFile(pgbouncerIniPath)
 	if err != nil {
 		log.Printf("Failed to read %s: %v", pgbouncerIniPath, err)
@@ -239,7 +257,6 @@ func (h *Handler) rebuildPgBouncerDatabases(ctx context.Context) {
 
 	content := string(data)
 
-	// Replace [databases] section
 	databasesSection := "[databases]\n"
 	if len(dbLines) > 0 {
 		databasesSection += strings.Join(dbLines, "\n") + "\n"
@@ -247,7 +264,6 @@ func (h *Handler) rebuildPgBouncerDatabases(ctx context.Context) {
 		databasesSection += "; no databases allowed through PgBouncer\n"
 	}
 
-	// Find and replace [databases] section up to next [ section or EOF
 	lines := strings.Split(content, "\n")
 	var result []string
 	inDatabases := false
@@ -284,15 +300,9 @@ func (h *Handler) rebuildPgBouncerDatabases(ctx context.Context) {
 	log.Printf("PgBouncer databases config regenerated (%d allowed)", len(dbLines))
 }
 
-type pgbouncerConfig struct {
-	PoolMode         string `json:"poolMode"`
-	DefaultPoolSize  int    `json:"defaultPoolSize"`
-	MaxClientConn    int    `json:"maxClientConn"`
-}
-
-func (h *Handler) GetPgBouncerConfig(w http.ResponseWriter, r *http.Request) {
+func (h *PgbouncerHandler) GetPgBouncerConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	config := pgbouncerConfig{
+	config := PgbouncerConfig{
 		PoolMode:        "transaction",
 		DefaultPoolSize: 20,
 		MaxClientConn:   100,
@@ -300,7 +310,7 @@ func (h *Handler) GetPgBouncerConfig(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.pool.Query(ctx, `SELECT key, value FROM system_config WHERE key LIKE 'pgbouncer_%'`)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read pgbouncer config")
+		core.WriteError(w, http.StatusInternalServerError, "failed to read pgbouncer config")
 		return
 	}
 	defer rows.Close()
@@ -329,35 +339,35 @@ func (h *Handler) GetPgBouncerConfig(w http.ResponseWriter, r *http.Request) {
 	if user != nil {
 		username = user.Username
 	}
-	h.writeAuditLog(r.Context(), auditEntry{
+	core.WriteAuditLog(h.pool, r.Context(), core.AuditEntry{
 		Username:  username,
 		Action:    "get_pgbouncer_config",
-		IPAddress: clientIP(r),
+		IPAddress: core.ClientIP(r),
 		Detail:    map[string]interface{}{"pool_mode": config.PoolMode, "default_pool_size": config.DefaultPoolSize, "max_client_conn": config.MaxClientConn},
 	})
 
-	writeJSON(w, http.StatusOK, config)
+	core.WriteJSON(w, http.StatusOK, config)
 }
 
-func (h *Handler) UpdatePgBouncerConfig(w http.ResponseWriter, r *http.Request) {
-	var req pgbouncerConfig
+func (h *PgbouncerHandler) UpdatePgBouncerConfig(w http.ResponseWriter, r *http.Request) {
+	var req PgbouncerConfig
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		core.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
 	switch req.PoolMode {
 	case "session", "transaction", "statement":
 	default:
-		writeError(w, http.StatusBadRequest, "pool_mode must be session, transaction, or statement")
+		core.WriteError(w, http.StatusBadRequest, "pool_mode must be session, transaction, or statement")
 		return
 	}
 	if req.DefaultPoolSize < 1 || req.DefaultPoolSize > 10000 {
-		writeError(w, http.StatusBadRequest, "default_pool_size must be 1-10000")
+		core.WriteError(w, http.StatusBadRequest, "default_pool_size must be 1-10000")
 		return
 	}
 	if req.MaxClientConn < 1 || req.MaxClientConn > 100000 {
-		writeError(w, http.StatusBadRequest, "max_client_conn must be 1-100000")
+		core.WriteError(w, http.StatusBadRequest, "max_client_conn must be 1-100000")
 		return
 	}
 
@@ -370,7 +380,7 @@ func (h *Handler) UpdatePgBouncerConfig(w http.ResponseWriter, r *http.Request) 
 		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
 	`, req.PoolMode, strconv.Itoa(req.DefaultPoolSize), strconv.Itoa(req.MaxClientConn))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save pgbouncer config")
+		core.WriteError(w, http.StatusInternalServerError, "failed to save pgbouncer config")
 		return
 	}
 
@@ -382,17 +392,17 @@ func (h *Handler) UpdatePgBouncerConfig(w http.ResponseWriter, r *http.Request) 
 	if user != nil {
 		username = user.Username
 	}
-	h.writeAuditLog(r.Context(), auditEntry{
+	core.WriteAuditLog(h.pool, r.Context(), core.AuditEntry{
 		Username:  username,
 		Action:    "update_pgbouncer_config",
-		IPAddress: clientIP(r),
+		IPAddress: core.ClientIP(r),
 		Detail:    map[string]interface{}{"pool_mode": req.PoolMode, "default_pool_size": req.DefaultPoolSize, "max_client_conn": req.MaxClientConn},
 	})
 
-	writeJSON(w, http.StatusOK, req)
+	core.WriteJSON(w, http.StatusOK, req)
 }
 
-func (h *Handler) rebuildPgBouncerSection(ctx context.Context) {
+func (h *PgbouncerHandler) rebuildPgBouncerSection(ctx context.Context) {
 	config := map[string]string{
 		"pool_mode":         "transaction",
 		"default_pool_size": "20",
@@ -458,7 +468,7 @@ func (h *Handler) rebuildPgBouncerSection(ctx context.Context) {
 	log.Println("PgBouncer section config regenerated")
 }
 
-func (h *Handler) reloadPgBouncer(ctx context.Context) {
+func (h *PgbouncerHandler) reloadPgBouncer(ctx context.Context) {
 	authPasswordPath := os.Getenv("PGBOUNCER_AUTH_PASSWORD")
 	if authPasswordPath == "" {
 		log.Printf("PGBOUNCER_AUTH_PASSWORD not set, cannot RELOAD PgBouncer")

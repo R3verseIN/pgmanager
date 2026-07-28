@@ -1,4 +1,4 @@
-package handler
+package ssl
 
 import (
 	"crypto/ecdsa"
@@ -16,19 +16,21 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"pgmanager/internal/handler/core"
 )
 
 type SSLHandler struct {
-	dataDir string
+	DataDir string
 }
 
-func NewSSLHandler(dataDir string) *SSLHandler {
+func New(dataDir string) *SSLHandler {
 	return &SSLHandler{
-		dataDir: dataDir,
+		DataDir: dataDir,
 	}
 }
 
-type sslStatus struct {
+type SSLStatus struct {
 	Enabled    bool   `json:"enabled"`
 	HasCerts   bool   `json:"hasCerts"`
 	Expiry     string `json:"expiry,omitempty"`
@@ -36,13 +38,13 @@ type sslStatus struct {
 	SelfSigned bool   `json:"selfSigned"`
 }
 
-type generateRequest struct {
+type GenerateRequest struct {
 	CommonName   string `json:"commonName"`
 	ValidityDays int    `json:"validityDays"`
 }
 
 func (sh *SSLHandler) certPath(name string) string {
-	return filepath.Join(sh.dataDir, name)
+	return filepath.Join(sh.DataDir, name)
 }
 
 func (sh *SSLHandler) fileExists(path string) bool {
@@ -51,20 +53,18 @@ func (sh *SSLHandler) fileExists(path string) bool {
 }
 
 func (sh *SSLHandler) pgbouncerSSLPrefPath() string {
-	return filepath.Join(sh.dataDir, "pgmanager-pgbouncer-ssl")
+	return filepath.Join(sh.DataDir, "pgmanager-pgbouncer-ssl")
 }
 
 func (sh *SSLHandler) pgbouncerRestartSignalPath() string {
 	return "/etc/pgbouncer/shared/pgbouncer-restart-signal"
 }
 
-
-// GET /api/ssl/status
 func (sh *SSLHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	certPath := sh.certPath("server.crt")
 	keyPath := sh.certPath("server.key")
 
-	status := sslStatus{
+	status := SSLStatus{
 		Enabled:  sh.isSSLEnabled(),
 		HasCerts: sh.fileExists(certPath) && sh.fileExists(keyPath),
 	}
@@ -78,14 +78,13 @@ func (sh *SSLHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, status)
+	core.WriteJSON(w, http.StatusOK, status)
 }
 
-// POST /api/ssl/generate
 func (sh *SSLHandler) GenerateCerts(w http.ResponseWriter, r *http.Request) {
-	var req generateRequest
+	var req GenerateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		core.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
@@ -93,90 +92,89 @@ func (sh *SSLHandler) GenerateCerts(w http.ResponseWriter, r *http.Request) {
 		req.CommonName = "pgmanager-server"
 	}
 	if req.ValidityDays <= 0 {
-		req.ValidityDays = 1825 // 5 years
+		req.ValidityDays = 1825
 	}
 
 	caKey, caCert, caCertBytes, err := sh.generateCA(req.CommonName+"-ca", req.ValidityDays*2)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate CA: "+err.Error())
+		core.WriteError(w, http.StatusInternalServerError, "failed to generate CA: "+err.Error())
 		return
 	}
 
 	serverKey, serverCertBytes, err := sh.generateServerCert(caCert, caKey, req.CommonName, req.ValidityDays)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate server cert: "+err.Error())
+		core.WriteError(w, http.StatusInternalServerError, "failed to generate server cert: "+err.Error())
 		return
 	}
 
 	if err := sh.writeCertFiles(caCertBytes, caKey, serverCertBytes, serverKey); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to write cert files: "+err.Error())
+		core.WriteError(w, http.StatusInternalServerError, "failed to write cert files: "+err.Error())
 		return
 	}
 
 	sh.chownCertFiles()
 
 	if err := sh.enableSSL(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to enable SSL: "+err.Error())
+		core.WriteError(w, http.StatusInternalServerError, "failed to enable SSL: "+err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	core.WriteJSON(w, http.StatusOK, map[string]string{
 		"status":  "generated",
 		"message": "SSL certificates generated and enabled.",
 	})
 }
 
-// POST /api/ssl/upload
 func (sh *SSLHandler) UploadCerts(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "failed to parse form: "+err.Error())
+		core.WriteError(w, http.StatusBadRequest, "failed to parse form: "+err.Error())
 		return
 	}
 
 	serverCertFile, _, err := r.FormFile("server_cert")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "server_cert file is required")
+		core.WriteError(w, http.StatusBadRequest, "server_cert file is required")
 		return
 	}
 	defer serverCertFile.Close()
 
 	serverKeyFile, _, err := r.FormFile("server_key")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "server_key file is required")
+		core.WriteError(w, http.StatusBadRequest, "server_key file is required")
 		return
 	}
 	defer serverKeyFile.Close()
 
 	serverCertPEM, err := io.ReadAll(serverCertFile)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read server cert")
+		core.WriteError(w, http.StatusInternalServerError, "failed to read server cert")
 		return
 	}
 	serverKeyPEM, err := io.ReadAll(serverKeyFile)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read server key")
+		core.WriteError(w, http.StatusInternalServerError, "failed to read server key")
 		return
 	}
 
 	serverCertBlock, _ := pem.Decode(serverCertPEM)
 	if serverCertBlock == nil {
-		writeError(w, http.StatusBadRequest, "invalid server certificate PEM")
+		core.WriteError(w, http.StatusBadRequest, "invalid server certificate PEM")
 		return
 	}
 	serverCert, err := x509.ParseCertificate(serverCertBlock.Bytes)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid server certificate: "+err.Error())
+		core.WriteError(w, http.StatusBadRequest, "invalid server certificate: "+err.Error())
 		return
 	}
 
 	serverKeyBlock, _ := pem.Decode(serverKeyPEM)
 	if serverKeyBlock == nil {
-		writeError(w, http.StatusBadRequest, "invalid server key PEM")
+		core.WriteError(w, http.StatusBadRequest, "invalid server key PEM")
 		return
 	}
 	serverKey, err := x509.ParseECPrivateKey(serverKeyBlock.Bytes)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid server key (must be ECDSA): "+err.Error())
+		core.WriteError(w, http.StatusBadRequest, "invalid server key (must be ECDSA): "+err.Error())
 		return
 	}
 	_ = serverKey
@@ -194,7 +192,7 @@ func (sh *SSLHandler) UploadCerts(w http.ResponseWriter, r *http.Request) {
 				}
 				opts.Roots.AddCert(caCert)
 				if _, verifyErr := serverCert.Verify(opts); verifyErr != nil {
-					writeError(w, http.StatusBadRequest, "server certificate is not signed by the provided CA")
+					core.WriteError(w, http.StatusBadRequest, "server certificate is not signed by the provided CA")
 					return
 				}
 			}
@@ -202,28 +200,27 @@ func (sh *SSLHandler) UploadCerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := sh.writeUploadedFiles(serverCertPEM, serverKeyPEM, caCertPEMBytes); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to write cert files: "+err.Error())
+		core.WriteError(w, http.StatusInternalServerError, "failed to write cert files: "+err.Error())
 		return
 	}
 
 	sh.chownCertFiles()
 
 	if err := sh.enableSSL(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to enable SSL: "+err.Error())
+		core.WriteError(w, http.StatusInternalServerError, "failed to enable SSL: "+err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	core.WriteJSON(w, http.StatusOK, map[string]string{
 		"status":  "uploaded",
 		"message": "SSL certificates uploaded and enabled.",
 	})
 }
 
-// GET /api/ssl/download
 func (sh *SSLHandler) DownloadCA(w http.ResponseWriter, r *http.Request) {
 	caPath := sh.certPath("root.crt")
 	if !sh.fileExists(caPath) {
-		writeError(w, http.StatusNotFound, "CA certificate not found")
+		core.WriteError(w, http.StatusNotFound, "CA certificate not found")
 		return
 	}
 
@@ -231,15 +228,14 @@ func (sh *SSLHandler) DownloadCA(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, caPath)
 }
 
-// POST /api/ssl/enable — re-enables SSL using existing cert files on disk.
 func (sh *SSLHandler) EnableCerts(w http.ResponseWriter, r *http.Request) {
 	if !sh.fileExists(sh.certPath("server.crt")) || !sh.fileExists(sh.certPath("server.key")) {
-		writeError(w, http.StatusBadRequest, "no certificate files found — generate or upload certificates first")
+		core.WriteError(w, http.StatusBadRequest, "no certificate files found — generate or upload certificates first")
 		return
 	}
 
 	if sh.isSSLEnabled() {
-		writeJSON(w, http.StatusOK, map[string]string{
+		core.WriteJSON(w, http.StatusOK, map[string]string{
 			"status":  "enabled",
 			"message": "SSL is already enabled.",
 		})
@@ -247,53 +243,46 @@ func (sh *SSLHandler) EnableCerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := sh.enableSSL(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to enable SSL: "+err.Error())
+		core.WriteError(w, http.StatusInternalServerError, "failed to enable SSL: "+err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	core.WriteJSON(w, http.StatusOK, map[string]string{
 		"status":  "enabled",
 		"message": "SSL enabled using existing certificates.",
 	})
 }
 
-// POST /api/ssl/disable — disables SSL without deleting cert files.
-// Cert files stay on disk so re-enabling is instant.
 func (sh *SSLHandler) DisableCerts(w http.ResponseWriter, r *http.Request) {
 	if err := sh.disableSSL(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to disable SSL: "+err.Error())
+		core.WriteError(w, http.StatusInternalServerError, "failed to disable SSL: "+err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	core.WriteJSON(w, http.StatusOK, map[string]string{
 		"status":  "disabled",
 		"message": "SSL disabled. Certificate files preserved for re-enable.",
 	})
 }
 
-// DELETE /api/ssl — permanently removes cert files and disables SSL.
 func (sh *SSLHandler) DeleteCerts(w http.ResponseWriter, r *http.Request) {
-	// First disable SSL if it's on
 	if sh.isSSLEnabled() {
 		if err := sh.disableSSL(); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to disable SSL: "+err.Error())
+			core.WriteError(w, http.StatusInternalServerError, "failed to disable SSL: "+err.Error())
 			return
 		}
 	}
 
-	// Remove cert files
 	for _, name := range []string{"server.crt", "server.key", "root.crt", "root.key"} {
 		os.Remove(sh.certPath(name))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	core.WriteJSON(w, http.StatusOK, map[string]string{
 		"status":  "deleted",
 		"message": "SSL certificates removed.",
 	})
 }
 
-// enableSSL writes the PgBouncer preference to "on" and signals a restart.
-// PgBouncer terminates TLS for clients; internal connection to Postgres is plaintext.
 func (sh *SSLHandler) enableSSL() error {
 	if err := os.WriteFile(sh.pgbouncerSSLPrefPath(), []byte("on"), 0644); err != nil {
 		return fmt.Errorf("failed to write PgBouncer SSL preference: %w", err)
@@ -304,7 +293,6 @@ func (sh *SSLHandler) enableSSL() error {
 	return nil
 }
 
-// disableSSL writes the PgBouncer preference to "off" and signals a restart.
 func (sh *SSLHandler) disableSSL() error {
 	if err := os.WriteFile(sh.pgbouncerSSLPrefPath(), []byte("off"), 0644); err != nil {
 		return fmt.Errorf("failed to write PgBouncer SSL preference: %w", err)
@@ -315,13 +303,10 @@ func (sh *SSLHandler) disableSSL() error {
 	return nil
 }
 
-
-// isSSLEnabled checks the PgBouncer preference file as the single source of truth.
 func (sh *SSLHandler) isSSLEnabled() bool {
 	prefPath := sh.pgbouncerSSLPrefPath()
 	data, err := os.ReadFile(prefPath)
 	if err != nil {
-		// No preference file: SSL is enabled if certs exist on disk
 		return sh.fileExists(sh.certPath("server.crt")) && sh.fileExists(sh.certPath("server.key"))
 	}
 	return strings.TrimSpace(string(data)) != "off"

@@ -1,8 +1,7 @@
-package handler
+package backup
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,110 +11,36 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"pgmanager/internal/auth"
+	"pgmanager/internal/handler/core"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type backupCreateRequest struct {
-	Database string   `json:"database"`
-	Tables   []string `json:"tables,omitempty"`
-}
-
-type backupDatabaseEntry struct {
-	Name string `json:"name"`
-}
-
-type backupTableEntry struct {
-	Schema string `json:"schema"`
-	Name   string `json:"name"`
-}
-
-type backupTableListResponse struct {
-	Database string             `json:"database"`
-	Tables   []backupTableEntry `json:"tables"`
-}
-
-type backupInspectResponse struct {
-	Database string             `json:"database"`
-	Format   string             `json:"format"`
-	Tables   []backupTableEntry `json:"tables"`
-	Size     int64              `json:"size"`
-}
-
-type backupRestoreRequest struct {
-	Database  string `json:"database"`
-	DropFirst bool   `json:"dropFirst"`
-}
-
-// sanitizeRedact removes sensitive values from error output.
-// pg_dump/pg_restore never output passwords to stderr (they use PGPASSWORD env var),
-// but we defensively redact any that might appear from Go error messages (e.g., DSN strings).
-func sanitizeRedact(s string) string {
-	// Redact DSN strings: postgres://user:PASSWORD@host/db → postgres://user:***@host/db
-	s = regexp.MustCompile(`(postgres://[^:]+:)[^@]+(@)`).ReplaceAllString(s, "${1}***${2}")
-	// Redact PGPASSWORD=VALUE patterns
-	s = regexp.MustCompile(`(?i)(PGPASSWORD=)\S+`).ReplaceAllString(s, "${1}***")
-	// Redact password=VALUE patterns in connection strings
-	s = regexp.MustCompile(`(?i)(password=)\S+`).ReplaceAllString(s, "${1}***")
-	return s
-}
-
-func (h *Handler) listExistingTables(ctx context.Context, dbName string) ([]string, error) {
-	host, port, user, password := h.getPgCredentials()
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, dbName)
-	dbPool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		return nil, err
-	}
-	defer dbPool.Close()
-
-	rows, err := dbPool.Query(ctx, `
-		SELECT tablename FROM pg_catalog.pg_tables
-		WHERE schemaname = 'public'
-		ORDER BY tablename
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		tables = append(tables, name)
-	}
-	return tables, nil
-}
-
-func (h *Handler) ListBackupDatabases(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.pool.Query(r.Context(), `
+func ListBackupDatabases(pool *pgxpool.Pool, baseDSN string, w http.ResponseWriter, r *http.Request) {
+	rows, err := pool.Query(r.Context(), `
 		SELECT datname FROM pg_catalog.pg_database
 		WHERE datistemplate = false
 		ORDER BY datname
 	`)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list databases")
+		core.WriteError(w, http.StatusInternalServerError, "failed to list databases")
 		return
 	}
 	defer rows.Close()
 
-	databases := make([]backupDatabaseEntry, 0)
+	databases := make([]BackupDatabaseEntry, 0)
 	for rows.Next() {
-		var db backupDatabaseEntry
+		var db BackupDatabaseEntry
 		if err := rows.Scan(&db.Name); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to scan row")
+			core.WriteError(w, http.StatusInternalServerError, "failed to scan row")
 			return
 		}
-		if protectedDatabases[db.Name] {
+		if core.ProtectedDatabases[db.Name] {
 			continue
 		}
 		databases = append(databases, db)
@@ -127,33 +52,33 @@ func (h *Handler) ListBackupDatabases(w http.ResponseWriter, r *http.Request) {
 		username = user.Username
 	}
 
-	h.writeAuditLog(r.Context(), auditEntry{
+	core.WriteAuditLog(pool, r.Context(), core.AuditEntry{
 		Username:  username,
 		Action:    "list_backup_databases",
-		IPAddress: clientIP(r),
+		IPAddress: core.ClientIP(r),
 		Detail:    map[string]interface{}{"count": len(databases)},
 	})
 
-	writeJSON(w, http.StatusOK, databases)
+	core.WriteJSON(w, http.StatusOK, databases)
 }
 
-func (h *Handler) ListBackupTables(w http.ResponseWriter, r *http.Request) {
+func ListBackupTables(pool *pgxpool.Pool, baseDSN string, w http.ResponseWriter, r *http.Request) {
 	dbName := r.URL.Query().Get("db")
 	if dbName == "" {
-		writeError(w, http.StatusBadRequest, "db parameter is required")
+		core.WriteError(w, http.StatusBadRequest, "db parameter is required")
 		return
 	}
-	if !validName.MatchString(dbName) {
-		writeError(w, http.StatusBadRequest, "invalid database name")
+	if !core.ValidName.MatchString(dbName) {
+		core.WriteError(w, http.StatusBadRequest, "invalid database name")
 		return
 	}
 
-	host, port, user, password := h.getPgCredentials()
+	host, port, user, password := getPgCredentials()
 
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, dbName)
 	dbPool, err := pgxpool.New(r.Context(), dsn)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to connect to database")
+		core.WriteError(w, http.StatusInternalServerError, "failed to connect to database")
 		return
 	}
 	defer dbPool.Close()
@@ -165,16 +90,16 @@ func (h *Handler) ListBackupTables(w http.ResponseWriter, r *http.Request) {
 		ORDER BY schemaname, tablename
 	`)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list tables: "+sanitizeRedact(err.Error()))
+		core.WriteError(w, http.StatusInternalServerError, "failed to list tables: "+sanitizeRedact(err.Error()))
 		return
 	}
 	defer rows.Close()
 
-	tables := make([]backupTableEntry, 0)
+	tables := make([]BackupTableEntry, 0)
 	for rows.Next() {
-		var t backupTableEntry
+		var t BackupTableEntry
 		if err := rows.Scan(&t.Schema, &t.Name); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to scan row")
+			core.WriteError(w, http.StatusInternalServerError, "failed to scan row")
 			return
 		}
 		tables = append(tables, t)
@@ -186,49 +111,49 @@ func (h *Handler) ListBackupTables(w http.ResponseWriter, r *http.Request) {
 		username = authUser.Username
 	}
 
-	h.writeAuditLog(r.Context(), auditEntry{
+	core.WriteAuditLog(pool, r.Context(), core.AuditEntry{
 		Username:  username,
 		Action:    "list_backup_tables",
 		Database:  dbName,
-		IPAddress: clientIP(r),
+		IPAddress: core.ClientIP(r),
 		Detail:    map[string]interface{}{"count": len(tables)},
 	})
 
-	writeJSON(w, http.StatusOK, backupTableListResponse{
+	core.WriteJSON(w, http.StatusOK, BackupTableListResponse{
 		Database: dbName,
 		Tables:   tables,
 	})
 }
 
-func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
-	var req backupCreateRequest
+func StreamBackup(pool *pgxpool.Pool, baseDSN string, w http.ResponseWriter, r *http.Request) {
+	var req BackupCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		core.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
 	req.Database = strings.TrimSpace(req.Database)
 	if req.Database == "" {
-		writeError(w, http.StatusBadRequest, "database is required")
+		core.WriteError(w, http.StatusBadRequest, "database is required")
 		return
 	}
-	if !validName.MatchString(req.Database) {
-		writeError(w, http.StatusBadRequest, "invalid database name")
+	if !core.ValidName.MatchString(req.Database) {
+		core.WriteError(w, http.StatusBadRequest, "invalid database name")
 		return
 	}
-	if protectedDatabases[req.Database] {
-		writeError(w, http.StatusForbidden, "cannot backup system database")
+	if core.ProtectedDatabases[req.Database] {
+		core.WriteError(w, http.StatusForbidden, "cannot backup system database")
 		return
 	}
 
 	for _, table := range req.Tables {
-		if !validName.MatchString(table) {
-			writeError(w, http.StatusBadRequest, "invalid table name: "+table)
+		if !core.ValidName.MatchString(table) {
+			core.WriteError(w, http.StatusBadRequest, "invalid table name: "+table)
 			return
 		}
 	}
 
-	host, port, user, password := h.getPgCredentials()
+	host, port, user, password := getPgCredentials()
 
 	args := []string{
 		"-Fc",
@@ -247,11 +172,9 @@ func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
 
 	args = append(args, req.Database)
 
-	// Buffer pg_dump output to temp file before streaming to client.
-	// This prevents corrupt/partial downloads if pg_dump fails mid-stream.
 	tmpDir, err := os.MkdirTemp("", "backup-stream-*")
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create temp directory")
+		core.WriteError(w, http.StatusInternalServerError, "failed to create temp directory")
 		return
 	}
 	defer os.RemoveAll(tmpDir)
@@ -266,7 +189,7 @@ func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
 
 	outFile, err := os.Create(tmpPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create temp file")
+		core.WriteError(w, http.StatusInternalServerError, "failed to create temp file")
 		return
 	}
 	cmd.Stdout = outFile
@@ -298,26 +221,24 @@ func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
 			username = authUser.Username
 		}
 
-		h.writeAuditLog(r.Context(), auditEntry{
+		core.WriteAuditLog(pool, r.Context(), core.AuditEntry{
 			Username:  username,
 			Action:    "backup_database",
 			Database:  req.Database,
-			IPAddress: clientIP(r),
+			IPAddress: core.ClientIP(r),
 			Detail:    map[string]interface{}{"error": errMsg},
 		})
 
-		writeError(w, http.StatusInternalServerError, errMsg)
+		core.WriteError(w, http.StatusInternalServerError, errMsg)
 		return
 	}
 
-	// Verify file was created and has content
 	fileInfo, statErr := os.Stat(tmpPath)
 	if statErr != nil || fileInfo.Size() == 0 {
-		writeError(w, http.StatusInternalServerError, "backup produced empty file")
+		core.WriteError(w, http.StatusInternalServerError, "backup produced empty file")
 		return
 	}
 
-	// Stream the completed temp file to the client
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := fmt.Sprintf("%s_%s.dump", req.Database, timestamp)
 
@@ -327,11 +248,11 @@ func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
 		username = authUser.Username
 	}
 
-	h.writeAuditLog(r.Context(), auditEntry{
+	core.WriteAuditLog(pool, r.Context(), core.AuditEntry{
 		Username:  username,
 		Action:    "backup_database",
 		Database:  req.Database,
-		IPAddress: clientIP(r),
+		IPAddress: core.ClientIP(r),
 		Detail:    map[string]interface{}{"tables": req.Tables, "size": fileInfo.Size(), "filename": filename},
 	})
 
@@ -341,7 +262,7 @@ func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
 
 	tmpFile, err := os.Open(tmpPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read backup file")
+		core.WriteError(w, http.StatusInternalServerError, "failed to read backup file")
 		return
 	}
 	defer tmpFile.Close()
@@ -354,22 +275,22 @@ func (h *Handler) StreamBackup(w http.ResponseWriter, r *http.Request) {
 	log.Printf("backup completed: %s (%d bytes)", filename, fileInfo.Size())
 }
 
-func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
+func InspectDump(pool *pgxpool.Pool, baseDSN string, w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "failed to parse multipart form")
+		core.WriteError(w, http.StatusBadRequest, "failed to parse multipart form")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "file is required")
+		core.WriteError(w, http.StatusBadRequest, "file is required")
 		return
 	}
 	defer file.Close()
 
 	tmpDir, err := os.MkdirTemp("", "backup-inspect-*")
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create temp dir")
+		core.WriteError(w, http.StatusInternalServerError, "failed to create temp dir")
 		return
 	}
 	defer os.RemoveAll(tmpDir)
@@ -377,66 +298,57 @@ func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
 	tmpPath := filepath.Join(tmpDir, "dump.dump")
 	tmpFile, err := os.Create(tmpPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create temp file")
+		core.WriteError(w, http.StatusInternalServerError, "failed to create temp file")
 		return
 	}
 	if _, err := io.Copy(tmpFile, file); err != nil {
 		tmpFile.Close()
-		writeError(w, http.StatusInternalServerError, "failed to write temp file")
+		core.WriteError(w, http.StatusInternalServerError, "failed to write temp file")
 		return
 	}
 	tmpFile.Close()
 
-	// Verify file starts with a valid pg_dump format header
-	// Custom format: "PGDMP" (0x50 0x47 0x44 0x4D 0x50)
-	// Tar format: 0x1F 0x8B (gzip) or "ustar" at offset 257
-	// Plain SQL: "--" or "/*"
 	headerBuf := make([]byte, 300)
 	if f, err := os.Open(tmpPath); err == nil {
 		n, _ := f.Read(headerBuf)
 		f.Close()
 		if n < 5 {
-			writeError(w, http.StatusBadRequest, "file too small to be a valid backup")
+			core.WriteError(w, http.StatusBadRequest, "file too small to be a valid backup")
 			return
 		}
 		headerStr := string(headerBuf[:n])
-		// Check for plain SQL dumps
 		if strings.Contains(headerStr, "-- PostgreSQL database dump") ||
 			strings.Contains(headerStr, "-- Dumped by pg_dump") ||
 			strings.Contains(headerStr, "CREATE DATABASE") {
-			writeError(w, http.StatusBadRequest,
+			core.WriteError(w, http.StatusBadRequest,
 				"this appears to be a plain SQL dump. Only PostgreSQL custom format (.dump created with pg_dump -Fc) is supported for restore. Re-create the backup using the pgmanager web UI or run: pg_dump -Fc -h HOST -U USER DATABASE > backup.dump")
 			return
 		}
-		// Check for valid pg_dump custom format magic: "PGDMP"
 		if n >= 5 && string(headerBuf[:5]) != "PGDMP" {
-			// Check for tar format (bytes at offset 257: "ustar")
 			isTar := n >= 263 && string(headerBuf[257:263]) == "ustar\x00"
 			if !isTar {
-				writeError(w, http.StatusBadRequest, "not a valid PostgreSQL backup file (expected PGDMP custom format)")
+				core.WriteError(w, http.StatusBadRequest, "not a valid PostgreSQL backup file (expected PGDMP custom format)")
 				return
 			}
 		}
 	}
 
-	_, port, user, password := h.getPgCredentials()
+	_, port, user, password := getPgCredentials()
 
 	cmd := exec.Command("pg_restore", "-l", "-h", "localhost", "-p", port, "-U", user, tmpPath)
 	cmd.Env = append(os.Environ(), "PGPASSWORD="+password)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// pg_restore -l returns exit code 1 for warnings — output is still valid
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			// Continue parsing — output is valid despite warnings
 		} else {
-			writeError(w, http.StatusBadRequest, "invalid or corrupt backup file: "+sanitizeRedact(string(output)))
+			core.WriteError(w, http.StatusBadRequest, "invalid or corrupt backup file: "+sanitizeRedact(string(output)))
 			return
 		}
 	}
 
-	tables := make([]backupTableEntry, 0)
+	tables := make([]BackupTableEntry, 0)
 	dbName := ""
 
 	for _, line := range strings.Split(string(output), "\n") {
@@ -445,7 +357,6 @@ func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Parse dbname from header comment: ";     dbname: shopdb"
 		if strings.HasPrefix(line, ";") {
 			trimmed := strings.TrimSpace(line[1:])
 			if strings.HasPrefix(trimmed, "dbname:") {
@@ -470,19 +381,14 @@ func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// pg_restore -l format: TOC_ID; OID1 OID2 TYPE SCHEMA NAME DB
-		// e.g. "220; 1259 16504 TABLE public orders pgmanager"
-		// or  "3470; 0 16504 TABLE DATA public orders pgmanager"
 		fields := strings.Fields(detail)
 		if len(fields) >= 5 {
 			objType := fields[2]
-			// For "TABLE" entries: fields = [OID1, OID2, TABLE, SCHEMA, NAME, DB]
-			// For "TABLE DATA" entries: fields = [OID1, OID2, TABLE, DATA, SCHEMA, NAME, DB]
 			if objType == "TABLE" && fields[3] != "DATA" && len(fields) >= 5 {
 				schema := fields[3]
 				name := fields[4]
 				if schema != "pg_catalog" && schema != "information_schema" {
-					tables = append(tables, backupTableEntry{
+					tables = append(tables, BackupTableEntry{
 						Schema: schema,
 						Name:   name,
 					})
@@ -497,15 +403,15 @@ func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
 		username = authUser.Username
 	}
 
-	h.writeAuditLog(r.Context(), auditEntry{
+	core.WriteAuditLog(pool, r.Context(), core.AuditEntry{
 		Username:  username,
 		Action:    "inspect_backup",
 		Database:  dbName,
-		IPAddress: clientIP(r),
+		IPAddress: core.ClientIP(r),
 		Detail:    map[string]interface{}{"tables": tables, "size": header.Size},
 	})
 
-	writeJSON(w, http.StatusOK, backupInspectResponse{
+	core.WriteJSON(w, http.StatusOK, BackupInspectResponse{
 		Database: dbName,
 		Format:   "custom",
 		Tables:   tables,
@@ -513,24 +419,24 @@ func (h *Handler) InspectDump(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
+func RestoreBackup(pool *pgxpool.Pool, baseDSN string, w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "failed to parse multipart form")
+		core.WriteError(w, http.StatusBadRequest, "failed to parse multipart form")
 		return
 	}
 
 	targetDB := r.FormValue("database")
 	targetDB = strings.TrimSpace(targetDB)
 	if targetDB == "" {
-		writeError(w, http.StatusBadRequest, "database is required")
+		core.WriteError(w, http.StatusBadRequest, "database is required")
 		return
 	}
-	if !validName.MatchString(targetDB) {
-		writeError(w, http.StatusBadRequest, "invalid database name")
+	if !core.ValidName.MatchString(targetDB) {
+		core.WriteError(w, http.StatusBadRequest, "invalid database name")
 		return
 	}
-	if protectedDatabases[targetDB] {
-		writeError(w, http.StatusForbidden, "cannot restore to system database")
+	if core.ProtectedDatabases[targetDB] {
+		core.WriteError(w, http.StatusForbidden, "cannot restore to system database")
 		return
 	}
 
@@ -539,11 +445,10 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		dropFirst, _ = strconv.ParseBool(df)
 	}
 
-	// Check for existing tables when dropFirst is false — prevent silent data duplication
 	if !dropFirst {
-		existingTables, err := h.listExistingTables(r.Context(), targetDB)
+		existingTables, err := ListExistingTables(r.Context(), baseDSN, targetDB)
 		if err == nil && len(existingTables) > 0 {
-			writeJSON(w, http.StatusConflict, map[string]any{
+			core.WriteJSON(w, http.StatusConflict, map[string]any{
 				"error":   "target database has existing tables",
 				"tables":  existingTables,
 				"message": fmt.Sprintf("Database '%s' contains %d table(s). Enable 'Drop target first' to replace them, or restore to a new database.", targetDB, len(existingTables)),
@@ -554,14 +459,14 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "file is required")
+		core.WriteError(w, http.StatusBadRequest, "file is required")
 		return
 	}
 	defer file.Close()
 
 	tmpDir, err := os.MkdirTemp("", "backup-restore-*")
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create temp dir")
+		core.WriteError(w, http.StatusInternalServerError, "failed to create temp dir")
 		return
 	}
 	defer os.RemoveAll(tmpDir)
@@ -569,30 +474,30 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	tmpPath := filepath.Join(tmpDir, "dump.dump")
 	tmpFile, err := os.Create(tmpPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create temp file")
+		core.WriteError(w, http.StatusInternalServerError, "failed to create temp file")
 		return
 	}
 	if _, err := io.Copy(tmpFile, file); err != nil {
 		tmpFile.Close()
-		writeError(w, http.StatusInternalServerError, "failed to write temp file")
+		core.WriteError(w, http.StatusInternalServerError, "failed to write temp file")
 		return
 	}
 	tmpFile.Close()
 
 	if dropFirst {
-		dropSQL := "DROP DATABASE IF EXISTS " + quoteIdent(targetDB) + " WITH (FORCE)"
-		if _, err := h.pool.Exec(r.Context(), dropSQL); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to drop database: "+sanitizeRedact(err.Error()))
+		dropSQL := "DROP DATABASE IF EXISTS " + core.QuoteIdent(targetDB) + " WITH (FORCE)"
+		if _, err := pool.Exec(r.Context(), dropSQL); err != nil {
+			core.WriteError(w, http.StatusInternalServerError, "failed to drop database: "+sanitizeRedact(err.Error()))
 			return
 		}
-		createSQL := "CREATE DATABASE " + quoteIdent(targetDB)
-		if _, err := h.pool.Exec(r.Context(), createSQL); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create database: "+sanitizeRedact(err.Error()))
+		createSQL := "CREATE DATABASE " + core.QuoteIdent(targetDB)
+		if _, err := pool.Exec(r.Context(), createSQL); err != nil {
+			core.WriteError(w, http.StatusInternalServerError, "failed to create database: "+sanitizeRedact(err.Error()))
 			return
 		}
 	}
 
-	host, port, user, password := h.getPgCredentials()
+	host, port, user, password := getPgCredentials()
 
 	cmd := exec.Command("pg_restore",
 		"-d", targetDB,
@@ -609,16 +514,13 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		// pg_restore returns exit code 1 for warnings (missing owner, privilege issues)
-		// These are non-fatal — data WAS restored successfully.
-		// However, some fatal errors also return exit code 1, so check stderr.
 		stderrStr := stderr.String()
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 &&
 			!strings.Contains(stderrStr, "FATAL:") &&
 			!strings.Contains(stderrStr, "ERROR:") {
 			log.Printf("restore completed with warnings for %s: %s", targetDB, stderrStr)
-			writeJSON(w, http.StatusOK, map[string]any{
+			core.WriteJSON(w, http.StatusOK, map[string]any{
 				"success":  true,
 				"database": targetDB,
 				"message":  "restore completed with warnings",
@@ -632,14 +534,14 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		if authUser != nil {
 			username = authUser.Username
 		}
-		h.writeAuditLog(r.Context(), auditEntry{
+		core.WriteAuditLog(pool, r.Context(), core.AuditEntry{
 			Username:  username,
 			Action:    "restore_backup",
 			Database:  targetDB,
-			IPAddress: clientIP(r),
+			IPAddress: core.ClientIP(r),
 			Detail:    map[string]interface{}{"error": sanitizeRedact(stderrStr), "dropFirst": dropFirst},
 		})
-		writeError(w, http.StatusInternalServerError, "restore failed: "+sanitizeRedact(stderrStr))
+		core.WriteError(w, http.StatusInternalServerError, "restore failed: "+sanitizeRedact(stderrStr))
 		return
 	}
 
@@ -651,45 +553,17 @@ func (h *Handler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		username = authUser.Username
 	}
 
-	h.writeAuditLog(r.Context(), auditEntry{
+	core.WriteAuditLog(pool, r.Context(), core.AuditEntry{
 		Username:  username,
 		Action:    "restore_backup",
 		Database:  targetDB,
-		IPAddress: clientIP(r),
+		IPAddress: core.ClientIP(r),
 		Detail:    map[string]interface{}{"dropFirst": dropFirst},
 	})
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	core.WriteJSON(w, http.StatusOK, map[string]any{
 		"success":  true,
 		"database": targetDB,
 		"message":  "restore completed successfully",
 	})
-}
-
-func (h *Handler) getPgCredentials() (host, port, user, password string) {
-	host = os.Getenv("PGHOST")
-	if host == "" {
-		host = "localhost"
-	}
-	port = os.Getenv("PGPORT")
-	if port == "" {
-		port = "5432"
-	}
-	user = os.Getenv("PGUSER")
-	if user == "" {
-		user = "pgmanager"
-	}
-
-	secretPath := os.Getenv("SECRET_PATH")
-	if secretPath == "" {
-		secretPath = "/secrets/pgmanager-password"
-	}
-	data, err := os.ReadFile(secretPath)
-	if err != nil {
-		log.Printf("failed to read password file %s: %v", secretPath, err)
-		password = ""
-		return
-	}
-	password = strings.TrimSpace(string(data))
-	return
 }

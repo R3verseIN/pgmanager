@@ -3,23 +3,29 @@ package main
 import (
 	"context"
 	"embed"
-	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"pgmanager/internal/auth"
-	"pgmanager/internal/handler"
-
-	"github.com/jackc/pgx/v5/pgxpool"
+	authhandler "pgmanager/internal/handler/auth"
+	"pgmanager/internal/handler/audit"
+	"pgmanager/internal/handler/backup"
+	"pgmanager/internal/handler/core"
+	"pgmanager/internal/handler/databases"
+	"pgmanager/internal/handler/data"
+	pgbouncerhandler "pgmanager/internal/handler/pgbouncer"
+	"pgmanager/internal/handler/settings"
+	"pgmanager/internal/handler/sql"
+	"pgmanager/internal/handler/ssl"
+	"pgmanager/internal/handler/tables"
+	"pgmanager/internal/handler/users"
+	"pgmanager/internal/platform"
 )
 
 //go:embed ui/dist/*
@@ -28,29 +34,10 @@ var uiFS embed.FS
 func main() {
 	ctx := context.Background()
 
-	databaseURL := buildDatabaseURL()
-
-	var pool *pgxpool.Pool
-	var lastErr error
-	for attempt := 1; attempt <= 30; attempt++ {
-		pool, lastErr = pgxpool.New(ctx, databaseURL)
-		if lastErr != nil {
-			log.Printf("attempt %d/30: failed to connect: %v", attempt, lastErr)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		if pingErr := pool.Ping(ctx); pingErr != nil {
-			pool.Close()
-			lastErr = pingErr
-			log.Printf("attempt %d/30: failed to ping: %v", attempt, pingErr)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		lastErr = nil
-		break
-	}
-	if lastErr != nil {
-		log.Fatalf("failed to connect after 30 attempts: %v", lastErr)
+	databaseURL := platform.BuildDatabaseURL()
+	pool, err := platform.ConnectDB(ctx, databaseURL)
+	if err != nil {
+		log.Fatalf("failed to connect after 30 attempts: %v", err)
 	}
 	defer pool.Close()
 
@@ -59,41 +46,41 @@ func main() {
 		port = "8080"
 	}
 
-	h := handler.NewWithDSN(pool, buildBaseDSN())
-	ah := handler.NewAuthHandler(pool)
-	sh := handler.NewSettingsHandler(pool)
-	ssh := handler.NewSSLHandler("/var/lib/postgresql/data")
+	baseDSN := platform.BuildBaseDSN()
+	h := core.NewWithDSN(pool, baseDSN)
+	ah := authhandler.New(pool)
+	sh := settings.New(pool)
+	ssh := ssl.New("/var/lib/postgresql/data")
+	pbh := pgbouncerhandler.New(pool, baseDSN)
 
-	if err := h.InitUserSchema(ctx); err != nil {
+	h.OnDatabaseChange = pbh.RebuildPgBouncerHBA
+
+	if err := users.InitUserSchema(ctx, pool); err != nil {
 		log.Printf("warning: failed to init user schema: %v", err)
 	}
 
-	// Generate PgBouncer HBA file on startup
-	h.RebuildPgBouncerHBA()
+	pbh.RebuildPgBouncerHBA()
 
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			h.RebuildPgBouncerHBA()
+			pbh.RebuildPgBouncerHBA()
 		}
 	}()
 
-	go startAuditLogRetention(ctx, pool)
+	go platform.StartAuditLogRetention(ctx, pool)
 
 	mux := http.NewServeMux()
 
-	// Auth routes (no auth required)
 	mux.HandleFunc("GET /api/auth/setup-check", ah.SetupCheck)
 	mux.HandleFunc("POST /api/auth/setup", ah.Setup)
 	mux.HandleFunc("POST /api/auth/login", ah.Login)
 
-	// API routes with auth
 	mux.Handle("/api/", auth.AuthMiddleware(pool)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		method := r.Method
 
-		// Auth routes (any role)
 		if method == "POST" && path == "/api/auth/logout" {
 			ah.Logout(w, r)
 			return
@@ -107,73 +94,63 @@ func main() {
 			return
 		}
 
-		// Read-only routes (any role)
 		if method == "GET" && path == "/api/databases" {
-			h.ListDatabases(w, r)
+			databases.ListDatabases(pool, w, r)
 			return
 		}
 		if method == "GET" && path == "/api/users" {
-			h.ListUsers(w, r)
+			users.ListUsers(pool, w, r)
 			return
 		}
 
-		// Database content routes (any role for reads, admin/dev for writes)
-		// GET /api/databases/{name}/tables → 4 slashes
 		if method == "GET" && strings.HasSuffix(path, "/tables") && strings.Count(path, "/") == 4 {
-			h.ListTables(w, r)
+			tables.ListTables(pool, baseDSN, w, r)
 			return
 		}
-		// GET /api/databases/{name}/columns/{table} → 5 slashes
 		if method == "GET" && strings.Contains(path, "/columns/") && !strings.HasSuffix(path, "/columns") {
-			h.GetColumns(w, r)
+			tables.GetColumns(pool, baseDSN, w, r)
 			return
 		}
-		// Data routes: /api/databases/{name}/data/{table} → 5 slashes
 		if strings.Contains(path, "/data/") && strings.Count(path, "/") == 5 {
 			switch method {
 			case "GET":
-				h.ListData(w, r)
+				data.ListData(pool, baseDSN, w, r)
 				return
 			case "POST":
-				h.InsertRow(w, r)
+				data.InsertRow(pool, baseDSN, w, r)
 				return
 			case "PUT":
-				h.UpdateRow(w, r)
+				data.UpdateRow(pool, baseDSN, w, r)
 				return
 			case "DELETE":
-				h.DeleteRow(w, r)
+				data.DeleteRow(pool, baseDSN, w, r)
 				return
 			}
 		}
-		// POST /api/databases/{name}/tables → 4 slashes
 		if method == "POST" && strings.HasSuffix(path, "/tables") && strings.Count(path, "/") == 4 {
-			h.CreateTable(w, r)
+			tables.CreateTable(pool, baseDSN, w, r)
 			return
 		}
-		// POST /api/databases/{name}/tables/{table}/columns → 6 slashes
 		if method == "POST" && strings.HasSuffix(path, "/columns") && strings.Count(path, "/") == 6 {
-			h.AddColumn(w, r)
+			tables.AddColumn(pool, baseDSN, w, r)
 			return
 		}
-		// DELETE /api/databases/{name}/tables/{table}/columns/{column} → 7 slashes
 		if method == "DELETE" && strings.Contains(path, "/columns/") && strings.Count(path, "/") == 7 {
-			h.DropColumn(w, r)
+			tables.DropColumn(pool, baseDSN, w, r)
 			return
 		}
-		// POST /api/databases/{name}/query → 4 slashes
 		if method == "POST" && strings.HasSuffix(path, "/query") && strings.Count(path, "/") == 4 {
-			h.ExecuteQuery(w, r)
+			sql.ExecuteQuery(pool, baseDSN, w, r)
 			return
 		}
 
-		// Backup routes (admin or dev can list/download)
 		if method == "GET" && path == "/api/backup/databases" {
 			user := auth.GetUserFromContext(r.Context())
 			if user == nil || (user.Role != "admin" && user.Role != "dev") {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
-			h.ListBackupDatabases(w, r)
+			backup.ListBackupDatabases(pool, baseDSN, w, r)
 			return
 		}
 		if method == "GET" && path == "/api/backup/tables" {
@@ -182,7 +159,7 @@ func main() {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
-			h.ListBackupTables(w, r)
+			backup.ListBackupTables(pool, baseDSN, w, r)
 			return
 		}
 		if method == "POST" && path == "/api/backup/create" {
@@ -191,7 +168,7 @@ func main() {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
-			h.StreamBackup(w, r)
+			backup.StreamBackup(pool, baseDSN, w, r)
 			return
 		}
 		if method == "POST" && path == "/api/backup/inspect" {
@@ -200,11 +177,10 @@ func main() {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
-			h.InspectDump(w, r)
+			backup.InspectDump(pool, baseDSN, w, r)
 			return
 		}
 
-		// Admin-only routes
 		user := auth.GetUserFromContext(r.Context())
 		if user == nil || user.Role != "admin" {
 			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
@@ -232,55 +208,54 @@ func main() {
 			return
 		}
 		if method == "POST" && path == "/api/databases" {
-			h.CreateDatabase(w, r)
+			databases.CreateDatabase(pool, pbh.RebuildPgBouncerHBA, w, r)
 			return
 		}
 		if method == "DELETE" && strings.HasPrefix(path, "/api/databases/") && strings.Count(path, "/") == 3 {
-			h.DeleteDatabase(w, r)
+			databases.DeleteDatabase(pool, pbh.RebuildPgBouncerHBA, w, r)
 			return
 		}
 		if method == "POST" && path == "/api/users" {
-			h.CreateUser(w, r)
+			users.CreateUser(pool, baseDSN, w, r)
 			return
 		}
 		if method == "POST" && strings.HasSuffix(path, "/databases") {
-			h.AddUserDatabase(w, r)
+			users.AddUserDatabase(pool, baseDSN, w, r)
 			return
 		}
 		if method == "DELETE" && strings.Contains(path, "/databases/") {
-			h.RemoveUserDatabase(w, r)
+			users.RemoveUserDatabase(pool, baseDSN, w, r)
 			return
 		}
 		if method == "PUT" && strings.HasPrefix(path, "/api/users/") {
-			h.UpdateUser(w, r)
+			users.UpdateUser(pool, baseDSN, w, r)
 			return
 		}
 		if method == "DELETE" && strings.HasPrefix(path, "/api/users/") {
-			h.DeleteUser(w, r)
+			users.DeleteUser(pool, baseDSN, w, r)
 			return
 		}
 		if method == "GET" && path == "/api/logs" {
-			h.ListLogs(w, r)
+			audit.ListLogs(pool, w, r)
 			return
 		}
 		if method == "GET" && path == "/api/pgbouncer/databases" {
-			h.ListPgBouncerDatabases(w, r)
+			pbh.ListPgBouncerDatabases(w, r)
 			return
 		}
 		if method == "PUT" && strings.HasPrefix(path, "/api/pgbouncer/databases/") {
-			h.TogglePgBouncerDatabase(w, r)
+			pbh.TogglePgBouncerDatabase(w, r)
 			return
 		}
 		if method == "GET" && path == "/api/pgbouncer/config" {
-			h.GetPgBouncerConfig(w, r)
+			pbh.GetPgBouncerConfig(w, r)
 			return
 		}
 		if method == "PUT" && path == "/api/pgbouncer/config" {
-			h.UpdatePgBouncerConfig(w, r)
+			pbh.UpdatePgBouncerConfig(w, r)
 			return
 		}
 
-		// Settings routes (admin only)
 		if method == "GET" && path == "/api/settings" {
 			sh.GetSettings(w, r)
 			return
@@ -290,7 +265,6 @@ func main() {
 			return
 		}
 
-		// SSL routes (admin only)
 		if method == "GET" && path == "/api/ssl/status" {
 			ssh.GetStatus(w, r)
 			return
@@ -320,9 +294,8 @@ func main() {
 			return
 		}
 
-		// Restore is admin-only (must be after admin check below)
 		if method == "POST" && path == "/api/backup/restore" {
-			h.RestoreBackup(w, r)
+			backup.RestoreBackup(pool, baseDSN, w, r)
 			return
 		}
 
@@ -361,109 +334,6 @@ func main() {
 	}
 }
 
-func buildDatabaseURL() string {
-	if url := os.Getenv("DATABASE_URL"); url != "" {
-		return url
-	}
-
-	secretPath := os.Getenv("SECRET_PATH")
-	if secretPath == "" {
-		secretPath = "/secrets/pgmanager-password"
-	}
-
-	password := readPassword(secretPath)
-
-	host := os.Getenv("PGHOST")
-	if host == "" {
-		host = "localhost"
-	}
-
-	port := os.Getenv("PGPORT")
-	if port == "" {
-		port = "5432"
-	}
-
-	user := os.Getenv("PGUSER")
-	if user == "" {
-		user = "pgmanager"
-	}
-
-	dbname := os.Getenv("PGDATABASE")
-	if dbname == "" {
-		dbname = "pgmanager"
-	}
-
-	sslmode := "disable"
-
-	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", user, password, host, port, dbname, sslmode)
-	log.Printf("connecting to database at %s:%s/%s as %s", host, port, dbname, user)
-	return url
-}
-
-func buildBaseDSN() string {
-	// If DATABASE_URL is set, extract credentials from it directly.
-	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
-		if u, err := url.Parse(dbURL); err == nil && u.User != nil {
-			user := u.User.Username()
-			password, _ := u.User.Password()
-			host := u.Hostname()
-			port := u.Port()
-			if port == "" {
-				port = "5432"
-			}
-			dbname := strings.TrimPrefix(u.Path, "/")
-			if dbname == "" {
-				dbname = "pgmanager"
-			}
-		return fmt.Sprintf("postgres://%s:%s@%s:%s/?sslmode=disable", user, password, host, port)
-		}
-	}
-
-	secretPath := os.Getenv("SECRET_PATH")
-	if secretPath == "" {
-		secretPath = "/secrets/pgmanager-password"
-	}
-
-	password := readPassword(secretPath)
-
-	host := os.Getenv("PGHOST")
-	if host == "" {
-		host = "localhost"
-	}
-
-	port := os.Getenv("PGPORT")
-	if port == "" {
-		port = "5432"
-	}
-
-	user := os.Getenv("PGUSER")
-	if user == "" {
-		user = "pgmanager"
-	}
-
-	return fmt.Sprintf("postgres://%s:%s@%s:%s/?sslmode=disable", user, password, host, port)
-}
-
-func readPassword(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		log.Fatalf("failed to open password file %s: %v", path, err)
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		log.Fatalf("failed to read password file %s: %v", path, err)
-	}
-
-	password := strings.TrimSpace(string(data))
-	if password == "" {
-		log.Fatalf("password file %s is empty", path)
-	}
-
-	return password
-}
-
 func spaHandler(distFS fs.FS) http.HandlerFunc {
 	fileServer := http.FileServer(http.FS(distFS))
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -472,52 +342,5 @@ func spaHandler(distFS fs.FS) http.HandlerFunc {
 			r.URL.Path = "/"
 		}
 		fileServer.ServeHTTP(w, r)
-	}
-}
-
-func startAuditLogRetention(ctx context.Context, pool *pgxpool.Pool) {
-	// Run once after 1 hour, then every 24 hours
-	select {
-	case <-time.After(1 * time.Hour):
-	case <-ctx.Done():
-		return
-	}
-
-	cleanupAuditLog(ctx, pool)
-
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			cleanupAuditLog(ctx, pool)
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func cleanupAuditLog(ctx context.Context, pool *pgxpool.Pool) {
-	var val string
-	err := pool.QueryRow(ctx,
-		`SELECT value FROM system_config WHERE key = 'audit_log_retention_days'`).
-		Scan(&val)
-	if err != nil {
-		return // key doesn't exist, skip
-	}
-
-	days, err := strconv.Atoi(val)
-	if err != nil || days <= 0 {
-		return // 0 = keep forever, or invalid value
-	}
-
-	tag, err := pool.Exec(ctx,
-		`DELETE FROM audit_log WHERE created_at < NOW() - ($1 || ' days')::INTERVAL`, val)
-	if err != nil {
-		log.Printf("audit log cleanup failed: %v", err)
-		return
-	}
-	if tag.RowsAffected() > 0 {
-		log.Printf("audit log cleanup: deleted %d rows older than %d days", tag.RowsAffected(), days)
 	}
 }

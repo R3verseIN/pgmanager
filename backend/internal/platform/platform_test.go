@@ -1,4 +1,4 @@
-package main
+package platform
 
 import (
 	"os"
@@ -14,7 +14,7 @@ func TestReadPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := readPassword(path)
+	got := ReadPassword(path)
 	if got != "testpass123" {
 		t.Fatalf("expected 'testpass123', got %q", got)
 	}
@@ -28,7 +28,7 @@ func TestReadPassword_Whitespace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := readPassword(path)
+	got := ReadPassword(path)
 	if got != "hello" {
 		t.Fatalf("expected 'hello', got %q", got)
 	}
@@ -37,7 +37,7 @@ func TestReadPassword_Whitespace(t *testing.T) {
 func TestBuildDatabaseURL_FromEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://user:pass@host:5432/dbname?sslmode=disable")
 
-	got := buildDatabaseURL()
+	got := BuildDatabaseURL()
 	if got != "postgres://user:pass@host:5432/dbname?sslmode=disable" {
 		t.Fatalf("unexpected URL: %s", got)
 	}
@@ -55,7 +55,7 @@ func TestBuildDatabaseURL_FromSecretPath(t *testing.T) {
 	os.WriteFile(path, []byte("mypassword"), 0600)
 	t.Setenv("SECRET_PATH", path)
 
-	got := buildDatabaseURL()
+	got := BuildDatabaseURL()
 	expected := "postgres://testuser:mypassword@testhost:5433/testdb?sslmode=disable"
 	if got != expected {
 		t.Fatalf("expected %s, got %s", expected, got)
@@ -74,7 +74,7 @@ func TestBuildDatabaseURL_Defaults(t *testing.T) {
 	os.WriteFile(path, []byte("secret"), 0600)
 	t.Setenv("SECRET_PATH", path)
 
-	got := buildDatabaseURL()
+	got := BuildDatabaseURL()
 	expected := "postgres://pgmanager:secret@localhost:5432/pgmanager?sslmode=disable"
 	if got != expected {
 		t.Fatalf("expected %s, got %s", expected, got)
