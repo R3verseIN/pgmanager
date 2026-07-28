@@ -683,7 +683,6 @@ func (h *Handler) RemoveUserDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = h.revokeAccess(ctx, username, db)
-
 	remaining := h.getUserDatabases(ctx, username)
 	if len(remaining) == 0 {
 		_, _ = h.pool.Exec(ctx, "DROP OWNED BY "+quoteIdent(username)+" CASCADE")
@@ -809,6 +808,9 @@ func (h *Handler) grantAccess(ctx context.Context, username, db, access string) 
 				return err
 			}
 		case "ddl":
+			if _, err := h.pool.Exec(ctx, "GRANT CREATE ON DATABASE "+quoteIdent(db)+" TO "+quoteIdent(username)); err != nil {
+				return err
+			}
 			if _, err := conn.Exec(ctx, "GRANT USAGE, CREATE ON SCHEMA public TO "+quoteIdent(username)); err != nil {
 				return err
 			}
@@ -851,16 +853,32 @@ func (h *Handler) grantAccess(ctx context.Context, username, db, access string) 
 
 func (h *Handler) revokeAccess(ctx context.Context, username, db string) error {
 	// Database-level revokes — run on pool
-	h.pool.Exec(ctx, "REVOKE ALL PRIVILEGES ON DATABASE "+quoteIdent(db)+" FROM "+quoteIdent(username))
-	h.pool.Exec(ctx, "REVOKE CONNECT ON DATABASE "+quoteIdent(db)+" FROM "+quoteIdent(username))
+	if _, err := h.pool.Exec(ctx, "REVOKE ALL PRIVILEGES ON DATABASE "+quoteIdent(db)+" FROM "+quoteIdent(username)); err != nil {
+		return err
+	}
+	if _, err := h.pool.Exec(ctx, "REVOKE CONNECT ON DATABASE "+quoteIdent(db)+" FROM "+quoteIdent(username)); err != nil {
+		return err
+	}
 
 	// Schema-level revokes — must run on target database
-	h.withDatabase(ctx, db, func(conn *pgx.Conn) error {
-		conn.Exec(ctx, "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM "+quoteIdent(username))
-		conn.Exec(ctx, "REVOKE ALL ON SCHEMA public FROM "+quoteIdent(username))
+	return h.withDatabase(ctx, db, func(conn *pgx.Conn) error {
+		if _, err := conn.Exec(ctx, "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM "+quoteIdent(username)); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(ctx, "REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM "+quoteIdent(username)); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(ctx, "REVOKE ALL ON SCHEMA public FROM "+quoteIdent(username)); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM "+quoteIdent(username)); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(ctx, "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM "+quoteIdent(username)); err != nil {
+			return err
+		}
 		return nil
 	})
-	return nil
 }
 
 func (h *Handler) rollbackUser(ctx context.Context, username string) {
@@ -868,18 +886,25 @@ func (h *Handler) rollbackUser(ctx context.Context, username string) {
 	databases := h.getUserDatabases(ctx, username)
 	for _, db := range databases {
 		h.withDatabase(ctx, db, func(conn *pgx.Conn) error {
-			conn.Exec(ctx, "DROP OWNED BY "+quoteIdent(username)+" CASCADE")
+			if _, err := conn.Exec(ctx, "DROP OWNED BY "+quoteIdent(username)+" CASCADE"); err != nil {
+				log.Printf("rollbackUser: DROP OWNED BY on %s failed: %v", db, err)
+			}
 			return nil
 		})
 	}
 
 	conn, err := h.pool.Acquire(ctx)
 	if err != nil {
+		log.Printf("rollbackUser: acquire connection failed: %v", err)
 		return
 	}
 	defer conn.Release()
-	conn.Exec(ctx, "DROP OWNED BY "+quoteIdent(username)+" CASCADE")
-	conn.Exec(ctx, "DROP ROLE IF EXISTS "+quoteIdent(username))
+	if _, err := conn.Exec(ctx, "DROP OWNED BY "+quoteIdent(username)+" CASCADE"); err != nil {
+		log.Printf("rollbackUser: DROP OWNED BY on pool failed: %v", err)
+	}
+	if _, err := conn.Exec(ctx, "DROP ROLE IF EXISTS "+quoteIdent(username)); err != nil {
+		log.Printf("rollbackUser: DROP ROLE failed: %v", err)
+	}
 }
 
 func quoteLiteral(s string) string {
