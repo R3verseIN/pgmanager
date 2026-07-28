@@ -71,6 +71,10 @@ services:
       db:
         condition: service_healthy
 
+networks:
+  default:
+    name: pgmanager
+
 volumes:
   pgdata:
   pgbouncer_shared:

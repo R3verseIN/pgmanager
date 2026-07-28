@@ -126,6 +126,27 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 
 > **Note:** The internal PostgreSQL port is not exposed to the host. All external connections must go through PgBouncer on port `5432`.
 
+### Connecting Other Docker Compose Projects
+
+Other Docker Compose projects on the same machine can connect to pgmanager's database via the shared `pgmanager` Docker network.
+
+**Other project's `docker-compose.yml`:**
+
+```yaml
+services:
+  myapp:
+    environment:
+      DATABASE_URL: postgres://myuser:mypass@pgbouncer:5432/mydb
+    networks:
+      - pgmanager
+
+networks:
+  pgmanager:
+    external: true
+```
+
+Use `pgbouncer` as the hostname — Docker resolves it automatically. Credentials are managed through the pgmanager admin panel.
+
 ## User Roles
 
 | Role | Permissions |
