@@ -27,6 +27,8 @@ services:
       context: .
       args:
         TARGETARCH: ${TARGETARCH:-amd64}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["echo -n 'pgmanager' > /tmp/pgmanager-password && exec pgmanager"]
     ports:
       - "8081:8080"
     environment:
@@ -38,6 +40,7 @@ services:
       PGBOUNCER_AUTH_PASSWORD: pgmanager
       PGPASSWORD: pgmanager
       PGDATA: /var/lib/postgresql/data
+      SECRET_PATH: /tmp/pgmanager-password
     volumes:
       - pgdata:/var/lib/postgresql/data
       - pgbouncer_shared:/etc/pgbouncer/shared
