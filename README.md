@@ -37,7 +37,6 @@
 - **User Management** — Create PostgreSQL users with granular access levels (read, write, ddl, full) and IP allowlisting
 - **Auth Users** — Manage web app login accounts with admin/dev/viewer roles
 - **Backup & Restore** — Stream backups via `pg_dump`, restore with `pg_restore`, inspect dump contents
-- **S3 Backups (pgBackRest)** — Continuous WAL archiving to S3-compatible storage, automated base (full/incremental) backups, single-database restores, and automatic garbage cleanup
 - **PgBouncer Control** — Toggle database access, configure pool mode/size, live reload
 - **Audit Logging** — Every action logged with user, IP, timestamp, and detail
 - **Admin CLI** — Recovery tool for user management when the web UI is inaccessible
@@ -100,21 +99,11 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 | `POSTGRES_PASSWORD` | PostgreSQL superuser password | Yes |
 | `PGBOUNCER_AUTH_PASSWORD` | PgBouncer auth proxy password | Yes |
 | `PGMANAGER_HOST` | Hostname/IP for user connection strings (e.g., `pg.example.com:5432`). Auto-detected from the web UI's Host header if not set. | No |
-| `PGBACKREST_REPO1_TYPE` | Type of repo (must be `s3` for S3 backups) | No |
-| `PGBACKREST_REPO1_S3_BUCKET` | S3 bucket name | If using S3 |
-| `PGBACKREST_REPO1_S3_ENDPOINT` | S3 endpoint URL (e.g., s3.us-east-1.amazonaws.com) | If using S3 |
-| `PGBACKREST_REPO1_S3_REGION` | S3 region (default: `us-east-1`) | If using S3 |
-| `PGBACKREST_REPO1_S3_URI_STYLE` | Set to `path` for MinIO/custom, `host` for AWS | If using S3 |
-| `PGBACKREST_REPO1_S3_KEY` | S3 access key ID | If using S3 |
-| `PGBACKREST_REPO1_S3_KEY_SECRET` | S3 secret access key | If using S3 |
-| `PGBACKREST_REPO1_PATH` | Path inside bucket (e.g., `/backups`) | No |
 
 **Password rules:**
 - 8-72 characters
 - Only `a-z`, `A-Z`, `0-9`, `_`, `-`
 - No special characters (`!@#$%^&*()` etc.)
-
-**S3 Backups:** Configure the `PGBACKREST_REPO1_*` environment variables in your `.env` file to enable automated S3 backups. All other pgBackRest settings (retention, backup schedule, timeouts) are managed via the Web UI.
 
 ### Exposed Ports
 

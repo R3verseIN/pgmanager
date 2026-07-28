@@ -1,6 +1,6 @@
 FROM postgres:17-alpine
 
-RUN apk add --no-cache python3 py3-pip pgbackrest
+RUN apk add --no-cache python3 py3-pip
 COPY --chmod=755 scripts/pgmanager-init.py /usr/local/bin/pgmanager-init.py
 COPY --chmod=755 scripts/pg-entrypoint.sh /usr/local/bin/pg-entrypoint.sh
 COPY --chmod=755 init/ /docker-entrypoint-initdb.d/

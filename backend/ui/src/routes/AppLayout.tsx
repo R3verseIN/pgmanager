@@ -12,7 +12,6 @@ import Logs from "./Logs";
 import Profile from "./Profile";
 import Settings from "./Settings";
 import Backups from "./Backups";
-import PgbackrestBackups from "./PgbackrestBackups";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -85,10 +84,7 @@ export default function AppLayout() {
             path="/backups"
             element={user?.role === "admin" || user?.role === "dev" ? <Backups /> : <Navigate to="/" />}
           />
-          <Route
-            path="/backup"
-            element={user?.role === "admin" ? <PgbackrestBackups /> : <Navigate to="/" />}
-          />
+
         </Routes>
       </main>
     </div>

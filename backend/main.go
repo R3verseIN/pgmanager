@@ -62,7 +62,6 @@ func main() {
 	h := handler.NewWithDSN(pool, buildBaseDSN())
 	ah := handler.NewAuthHandler(pool)
 	sh := handler.NewSettingsHandler(pool)
-	bh := handler.NewPgbackrestHandler(pool)
 	ssh := handler.NewSSLHandler("/var/lib/postgresql/data")
 
 	if err := h.InitUserSchema(ctx); err != nil {
@@ -324,32 +323,6 @@ func main() {
 		// Restore is admin-only (must be after admin check below)
 		if method == "POST" && path == "/api/backup/restore" {
 			h.RestoreBackup(w, r)
-			return
-		}
-
-		// pgBackRest backup routes (admin only)
-		if path == "/api/pgbackrest/status" {
-			bh.GetStatus(w, r)
-			return
-		}
-		if method == "GET" && path == "/api/pgbackrest/list" {
-			bh.ListBackups(w, r)
-			return
-		}
-		if method == "POST" && path == "/api/pgbackrest/trigger" {
-			bh.TriggerBackup(w, r)
-			return
-		}
-		if method == "POST" && path == "/api/pgbackrest/restore" {
-			bh.RestoreBackup(w, r)
-			return
-		}
-		if method == "POST" && path == "/api/pgbackrest/settings" {
-			bh.UpdateSettings(w, r)
-			return
-		}
-		if method == "POST" && path == "/api/pgbackrest/test-connection" {
-			bh.TestConnection(w, r)
 			return
 		}
 

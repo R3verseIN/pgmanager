@@ -11,39 +11,6 @@
 # NEVER use this in production. Test credentials only.
 
 services:
-  # ── MinIO (S3-compatible storage) ──────────────────────────────────
-  minio:
-    image: minio/minio:latest
-    command: server /data --address ":9000" --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9001:9000"
-      - "9002:9001"
-    volumes:
-      - ./certs:/root/.minio/certs
-    healthcheck:
-      test: ["CMD", "curl", "-k", "-f", "https://localhost:9000/minio/health/live"]
-      interval: 3s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
-
-  # ── Bucket provisioner (runs once, then exits) ────────────────────
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -e
-        mc alias set local https://minio:9000 minioadmin minioadmin --insecure
-        mc mb --ignore-existing local/pgmanager-test --insecure
-        echo "minio-init: bucket 'pgmanager-test' ready"
-
   # ── PostgreSQL with WAL-G ─────────────────────────────────────────
   db:
     build:
@@ -57,17 +24,9 @@ services:
       POSTGRES_PASSWORD: pgmanager
       PGBOUNCER_AUTH_PASSWORD: pgmanager
       # pgBackRest archiving config (used by Go backend archive setup)
-      PGBACKREST_REPO1_TYPE: s3
       PGPASSWORD: pgmanager
       PGUSER: pgmanager
       PGDATABASE: pgmanager
-      PGBACKREST_REPO1_S3_BUCKET: pgmanager-test
-      PGBACKREST_REPO1_S3_ENDPOINT: minio:9000
-      PGBACKREST_REPO1_STORAGE_VERIFY_TLS: n
-      PGBACKREST_REPO1_S3_REGION: us-east-1
-      PGBACKREST_REPO1_S3_URI_STYLE: path
-      PGBACKREST_REPO1_S3_KEY: minioadmin
-      PGBACKREST_REPO1_S3_KEY_SECRET: minioadmin
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -76,9 +35,6 @@ services:
       timeout: 5s
       retries: 15
       start_period: 20s
-    depends_on:
-      minio-init:
-        condition: service_completed_successfully
 
   # ── pgmanager app (Go backend + React UI) ─────────────────────────
   app:
@@ -95,16 +51,7 @@ services:
       PGUSER: pgmanager
       PGDATABASE: pgmanager
       PGBOUNCER_AUTH_PASSWORD: pgmanager
-      # pgBackRest credentials for CLI commands
       PGPASSWORD: pgmanager
-      PGBACKREST_REPO1_TYPE: s3
-      PGBACKREST_REPO1_S3_BUCKET: pgmanager-test
-      PGBACKREST_REPO1_S3_ENDPOINT: minio:9000
-      PGBACKREST_REPO1_STORAGE_VERIFY_TLS: n
-      PGBACKREST_REPO1_S3_REGION: us-east-1
-      PGBACKREST_REPO1_S3_URI_STYLE: path
-      PGBACKREST_REPO1_S3_KEY: minioadmin
-      PGBACKREST_REPO1_S3_KEY_SECRET: minioadmin
       PGDATA: /var/lib/postgresql/data
     volumes:
       - pgdata:/var/lib/postgresql/data
