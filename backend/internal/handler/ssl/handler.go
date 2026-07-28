@@ -21,12 +21,16 @@ import (
 )
 
 type SSLHandler struct {
-	DataDir string
+	DataDir               string
+	PgBouncerSSLPrefPath  string
+	PgBouncerRestartPath  string
 }
 
 func New(dataDir string) *SSLHandler {
 	return &SSLHandler{
-		DataDir: dataDir,
+		DataDir:              dataDir,
+		PgBouncerSSLPrefPath: filepath.Join(dataDir, "pgmanager-pgbouncer-ssl"),
+		PgBouncerRestartPath: "/etc/pgbouncer/shared/pgbouncer-restart-signal",
 	}
 }
 
@@ -52,12 +56,24 @@ func (sh *SSLHandler) fileExists(path string) bool {
 	return err == nil
 }
 
-func (sh *SSLHandler) pgbouncerSSLPrefPath() string {
-	return filepath.Join(sh.DataDir, "pgmanager-pgbouncer-ssl")
+func (sh *SSLHandler) enableSSL() error {
+	if err := os.WriteFile(sh.PgBouncerSSLPrefPath, []byte("on"), 0644); err != nil {
+		return fmt.Errorf("failed to write PgBouncer SSL preference: %w", err)
+	}
+	if err := os.WriteFile(sh.PgBouncerRestartPath, []byte("1"), 0644); err != nil {
+		return fmt.Errorf("failed to write PgBouncer restart signal: %w", err)
+	}
+	return nil
 }
 
-func (sh *SSLHandler) pgbouncerRestartSignalPath() string {
-	return "/etc/pgbouncer/shared/pgbouncer-restart-signal"
+func (sh *SSLHandler) disableSSL() error {
+	if err := os.WriteFile(sh.PgBouncerSSLPrefPath, []byte("off"), 0644); err != nil {
+		return fmt.Errorf("failed to write PgBouncer SSL preference: %w", err)
+	}
+	if err := os.WriteFile(sh.PgBouncerRestartPath, []byte("1"), 0644); err != nil {
+		return fmt.Errorf("failed to write PgBouncer restart signal: %w", err)
+	}
+	return nil
 }
 
 func (sh *SSLHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
@@ -283,29 +299,8 @@ func (sh *SSLHandler) DeleteCerts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (sh *SSLHandler) enableSSL() error {
-	if err := os.WriteFile(sh.pgbouncerSSLPrefPath(), []byte("on"), 0644); err != nil {
-		return fmt.Errorf("failed to write PgBouncer SSL preference: %w", err)
-	}
-	if err := os.WriteFile(sh.pgbouncerRestartSignalPath(), []byte("1"), 0644); err != nil {
-		return fmt.Errorf("failed to write PgBouncer restart signal: %w", err)
-	}
-	return nil
-}
-
-func (sh *SSLHandler) disableSSL() error {
-	if err := os.WriteFile(sh.pgbouncerSSLPrefPath(), []byte("off"), 0644); err != nil {
-		return fmt.Errorf("failed to write PgBouncer SSL preference: %w", err)
-	}
-	if err := os.WriteFile(sh.pgbouncerRestartSignalPath(), []byte("1"), 0644); err != nil {
-		return fmt.Errorf("failed to write PgBouncer restart signal: %w", err)
-	}
-	return nil
-}
-
 func (sh *SSLHandler) isSSLEnabled() bool {
-	prefPath := sh.pgbouncerSSLPrefPath()
-	data, err := os.ReadFile(prefPath)
+	data, err := os.ReadFile(sh.PgBouncerSSLPrefPath)
 	if err != nil {
 		return sh.fileExists(sh.certPath("server.crt")) && sh.fileExists(sh.certPath("server.key"))
 	}

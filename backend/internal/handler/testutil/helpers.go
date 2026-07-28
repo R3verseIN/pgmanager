@@ -6,40 +6,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
-
-	"pgmanager/internal/handler/core"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://pgmanager:pgmanager@localhost:5433/pgmanager?sslmode=disable"
-	}
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	t.Cleanup(func() { pool.Close() })
+	pool, _ := TestContainer(t)
 	return pool
 }
 
-func TestBaseDSN() string {
-	dsn := os.Getenv("TEST_DATABASE_BASE_DSN")
-	if dsn == "" {
-		dsn = "postgres://pgmanager:pgmanager@localhost:5433/pgmanager?sslmode=disable"
-	}
-	return dsn
-}
-
-func SetupHandler(t *testing.T) *core.Handler {
+func TestBaseDSN(t *testing.T) string {
 	t.Helper()
-	pool := TestPool(t)
-	return core.NewWithDSN(pool, TestBaseDSN())
+	_, baseDSN := TestContainer(t)
+	return baseDSN
 }
 
 func JSONBody(v any) *bytes.Buffer {

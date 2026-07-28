@@ -1,17 +1,4 @@
-# docker-compose.test.yml — Full WAL-G integration test stack
-#
-# Spins up MinIO (S3), PostgreSQL with WAL archiving, the pgmanager app,
-# PgBouncer, and a socat port bridge for local Go test connectivity.
-#
-# Usage:
-#   ./scripts/test-walg.sh                    # run tests, tear down after
-#   ./scripts/test-walg.sh --keep             # run tests, keep stack running
-#   docker compose -f docker-compose.test.yml up -d --build  # manual
-#
-# NEVER use this in production. Test credentials only.
-
 services:
-  # ── PostgreSQL with WAL-G ─────────────────────────────────────────
   db:
     build:
       context: .
@@ -23,7 +10,6 @@ services:
       POSTGRES_DB: pgmanager
       POSTGRES_PASSWORD: pgmanager
       PGBOUNCER_AUTH_PASSWORD: pgmanager
-      # pgBackRest archiving config (used by Go backend archive setup)
       PGPASSWORD: pgmanager
       PGUSER: pgmanager
       PGDATABASE: pgmanager
@@ -36,14 +22,13 @@ services:
       retries: 15
       start_period: 20s
 
-  # ── pgmanager app (Go backend + React UI) ─────────────────────────
   app:
     build:
       context: .
       args:
         TARGETARCH: ${TARGETARCH:-amd64}
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       DATABASE_URL: postgres://pgmanager:pgmanager@db:5432/pgmanager?sslmode=disable
       PGHOST: db
@@ -56,17 +41,20 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - pgbouncer_shared:/etc/pgbouncer/shared
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
     depends_on:
       db:
         condition: service_healthy
 
-  # ── PgBouncer (connection pooler) ─────────────────────────────────
   pgbouncer:
     build:
       context: .
       dockerfile: Dockerfile.pgbouncer
-    ports:
-      - "5432:6432"
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
       - pgbouncer_shared:/etc/pgbouncer/shared
@@ -74,17 +62,15 @@ services:
       db:
         condition: service_healthy
 
-  # ── socat bridge: exposes db:5432 on host port 5433 ──────────────
-  #    Go integration tests connect here for direct DB queries.
-  db-test-port:
-    image: alpine:3.21
-    command: >
-      sh -c "apk add --no-cache socat &&
-             socat TCP-LISTEN:5432,fork,reuseaddr TCP:db:5432"
-    ports:
-      - "5433:5432"
+  e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    environment:
+      PGMANAGER_URL: http://app:8080
+      PG_DSN: postgresql://pgmanager:pgmanager@db:5432/pgmanager?sslmode=disable
     depends_on:
-      db:
+      app:
         condition: service_healthy
 
 volumes:
