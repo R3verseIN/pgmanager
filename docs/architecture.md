@@ -27,7 +27,9 @@ Everything runs in three Docker containers: `db` (PostgreSQL 17), `app` (Go bina
 
 ## System Overview
 
-pgmanager runs three containers in an isolated Docker network. The `app` container exposes port 8080 (web UI) and the `pgbouncer` container exposes port 5432 (client connections). PostgreSQL on the `db` container is never exposed to the host — it's only reachable within the Docker network by the other two containers.
+pgmanager runs three containers in an isolated Docker network named `pgmanager`. The `app` container exposes port 8080 (web UI) and the `pgbouncer` container exposes port 5432 (client connections). PostgreSQL on the `db` container is never exposed to the host — it's only reachable within the Docker network by the other two containers.
+
+Other Docker Compose projects on the same machine can join the `pgmanager` network to connect directly to PgBouncer. Add `networks: pgmanager: external: true` to the other project's compose file and use `pgbouncer` as the hostname (e.g., `postgres://user:pass@pgbouncer:5432/mydb`).
 
 ## Two Access Paths
 
