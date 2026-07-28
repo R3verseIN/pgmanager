@@ -29,10 +29,10 @@ export async function triggerBackup(type: string): Promise<{ message: string }> 
   });
 }
 
-export async function restoreS3Backup(database: string, target?: string): Promise<{ message: string }> {
+export async function restoreS3Backup(database: string, backup_name?: string, target_time?: string): Promise<{ message: string }> {
   return request("/pgbackrest/restore", {
     method: "POST",
-    body: JSON.stringify({ database, target }),
+    body: JSON.stringify({ database, backup_name, target_time }),
   });
 }
 

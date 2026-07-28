@@ -22,7 +22,7 @@ import {
 } from "../ui/select";
 import { toast } from "sonner";
 
-export default function RestoreDialog({
+export default function RestoreBackupDialog({
   open,
   onOpenChange,
   backupName,
@@ -46,7 +46,7 @@ export default function RestoreDialog({
     if (!targetDb || !backupName) return;
     setRestoring(true);
     try {
-      await restoreS3Backup(targetDb, backupName);
+      await restoreS3Backup(targetDb, backupName, undefined);
       toast.success(`Restored ${backupName} to ${targetDb}`);
       onOpenChange(false);
       setTargetDb("");
@@ -62,9 +62,9 @@ export default function RestoreDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Restore Backup</DialogTitle>
+          <DialogTitle>Restore Snapshot</DialogTitle>
           <DialogDescription>
-            Restore <span className="font-mono text-foreground">{backupName}</span> to a target database.
+            Restore the database to the exact state of snapshot <span className="font-mono text-foreground">{backupName}</span>.
             The target database will be overwritten.
           </DialogDescription>
         </DialogHeader>
@@ -108,7 +108,7 @@ export default function RestoreDialog({
             disabled={!targetDb || restoring}
           >
             {restoring && <Loader2 className="mr-2 size-4 animate-spin" />}
-            Restore
+            Restore Snapshot
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -18,7 +18,7 @@ sleep 5
 
 echo "Waiting for pgbouncer to be ready..."
 for i in {1..30}; do
-    if psql postgres://pgmanager:pgmanager@localhost:5433/pgmanager?sslmode=disable -c '\q' 2>/dev/null; then
+    if psql postgres://pgmanager:pgmanager@localhost:5432/pgmanager?sslmode=disable -c '\q' 2>/dev/null; then
         echo "PgBouncer is ready!"
         break
     fi
@@ -26,28 +26,28 @@ for i in {1..30}; do
 done
 
 echo "Creating test data..."
-psql postgres://pgmanager:pgmanager@localhost:5433/pgmanager?sslmode=disable -c "DROP DATABASE IF EXISTS e2e_test WITH (FORCE);"
-psql postgres://pgmanager:pgmanager@localhost:5433/pgmanager?sslmode=disable -c "CREATE DATABASE e2e_test;"
-psql postgres://pgmanager:pgmanager@localhost:5433/e2e_test?sslmode=disable -c "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT);"
-psql postgres://pgmanager:pgmanager@localhost:5433/e2e_test?sslmode=disable -c "INSERT INTO users (name) VALUES ('Alice');"
+psql postgres://pgmanager:pgmanager@localhost:5432/pgmanager?sslmode=disable -c "DROP DATABASE IF EXISTS e2e_test WITH (FORCE);"
+psql postgres://pgmanager:pgmanager@localhost:5432/pgmanager?sslmode=disable -c "CREATE DATABASE e2e_test;"
+psql postgres://pgmanager:pgmanager@localhost:5432/e2e_test?sslmode=disable -c "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT);"
+psql postgres://pgmanager:pgmanager@localhost:5432/e2e_test?sslmode=disable -c "INSERT INTO users (name) VALUES ('Alice');"
 
 echo "Triggering full backup..."
 curl -s -b $COOKIE_JAR -X POST http://localhost:8080/api/pgbackrest/trigger -H "Content-Type: application/json" -d '{"type":"full"}'
 
 echo "Adding more test data..."
-psql postgres://pgmanager:pgmanager@localhost:5433/e2e_test?sslmode=disable -c "INSERT INTO users (name) VALUES ('Bob');"
+psql postgres://pgmanager:pgmanager@localhost:5432/e2e_test?sslmode=disable -c "INSERT INTO users (name) VALUES ('Bob');"
 
 echo "Triggering incremental backup..."
 curl -s -b $COOKIE_JAR -X POST http://localhost:8080/api/pgbackrest/trigger -H "Content-Type: application/json" -d '{"type":"incr"}'
 
 echo "Dropping table..."
-psql postgres://pgmanager:pgmanager@localhost:5433/e2e_test?sslmode=disable -c "DROP TABLE users;"
+psql postgres://pgmanager:pgmanager@localhost:5432/e2e_test?sslmode=disable -c "DROP TABLE users;"
 
-echo "Triggering restore..."
+echo "Triggering restore (latest state)..."
 curl -s -b $COOKIE_JAR -X POST http://localhost:8080/api/pgbackrest/restore -H "Content-Type: application/json" -d '{"database":"e2e_test"}'
 
 echo "Verifying data..."
-COUNT=$(psql postgres://pgmanager:pgmanager@localhost:5433/e2e_test?sslmode=disable -t -c "SELECT count(*) FROM users;")
+COUNT=$(psql postgres://pgmanager:pgmanager@localhost:5432/e2e_test?sslmode=disable -t -c "SELECT count(*) FROM users;")
 COUNT=$(echo $COUNT | xargs)
 
 if [ "$COUNT" = "2" ]; then
@@ -58,7 +58,7 @@ else
 fi
 
 echo "Checking timeout update..."
-psql postgres://pgmanager:pgmanager@localhost:5433/e2e_test?sslmode=disable -c "INSERT INTO users (name) VALUES ('Charlie');"
+psql postgres://pgmanager:pgmanager@localhost:5432/e2e_test?sslmode=disable -c "INSERT INTO users (name) VALUES ('Charlie');"
 
 echo "Listing backups..."
 curl -s -b $COOKIE_JAR http://localhost:8080/api/pgbackrest/list

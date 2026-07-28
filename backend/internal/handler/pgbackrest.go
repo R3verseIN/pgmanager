@@ -153,6 +153,16 @@ func (h *PgbackrestHandler) UpdateSettings(w http.ResponseWriter, r *http.Reques
 	if req.Enabled {
 		// pgbackrest stanza-create is required before archiving can start
 		cmd := exec.Command("pgbackrest", "--stanza=pgmanager", "--pg1-path=/var/lib/postgresql/data", "stanza-create")
+		
+		pgPass := os.Getenv("POSTGRES_PASSWORD")
+		if pgPass == "" {
+			pgPass = os.Getenv("PGPASSWORD")
+			if pgPass == "" {
+				pgPass = "pgmanager" // fallback
+			}
+		}
+		cmd.Env = append(os.Environ(), "PGPASSWORD="+pgPass)
+
 		if output, err := cmd.CombinedOutput(); err != nil {
 			log.Printf("stanza-create failed: %v\nOutput: %s", err, string(output))
 			http.Error(w, fmt.Sprintf("stanza-create failed: %s", string(output)), http.StatusInternalServerError)
@@ -209,6 +219,15 @@ func (h *PgbackrestHandler) TriggerBackup(w http.ResponseWriter, r *http.Request
 		"--start-fast",
 		"backup")
 	
+	pgPass := os.Getenv("POSTGRES_PASSWORD")
+	if pgPass == "" {
+		pgPass = os.Getenv("PGPASSWORD")
+		if pgPass == "" {
+			pgPass = "pgmanager" // fallback
+		}
+	}
+	cmd.Env = append(os.Environ(), "PGPASSWORD="+pgPass)
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		http.Error(w, string(output), http.StatusInternalServerError)
@@ -220,8 +239,9 @@ func (h *PgbackrestHandler) TriggerBackup(w http.ResponseWriter, r *http.Request
 
 func (h *PgbackrestHandler) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Database string `json:"database"`
-		Target   string `json:"target"` // Point-in-time target (e.g. 2024-03-15 14:00:00)
+		Database   string `json:"database"`
+		BackupName string `json:"backup_name"` // Base backup label
+		TargetTime string `json:"target_time"` // Point-in-time target
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 
@@ -240,8 +260,10 @@ func (h *PgbackrestHandler) RestoreBackup(w http.ResponseWriter, r *http.Request
 
 	// 2. Restore pgbackrest to temp directory
 	args := []string{"--stanza=pgmanager", "--pg1-path=" + tempDir, "restore"}
-	if req.Target != "" {
-		args = append(args, "--type=time", "--target="+req.Target)
+	if req.BackupName != "" {
+		args = append(args, "--set="+req.BackupName)
+	} else if req.TargetTime != "" {
+		args = append(args, "--type=time", "--target="+req.TargetTime)
 	}
 	cmd := exec.Command("pgbackrest", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {

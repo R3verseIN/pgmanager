@@ -15,7 +15,8 @@ import {
   testBackupConnection,
 } from "../api/pgbackrest";
 import type { BackupSettings } from "../api/pgbackrest";
-import RestoreDialog from "../components/dialogs/RestoreDialog";
+import RestoreBackupDialog from "../components/dialogs/RestoreBackupDialog";
+import RestoreTimeDialog from "../components/dialogs/RestoreTimeDialog";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
 import { Switch } from "../components/ui/switch";
@@ -68,8 +69,11 @@ export default function PgbackrestBackups() {
     },
   });
 
-  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const [restoreBackupDialogOpen, setRestoreBackupDialogOpen] = useState(false);
   const [restoreBackupName, setRestoreBackupName] = useState("");
+
+  const [restoreTimeDialogOpen, setRestoreTimeDialogOpen] = useState(false);
+  const [targetTime, setTargetTime] = useState("");
 
   const [editSettings, setEditSettings] = useState<BackupSettings | null>(null);
 
@@ -297,7 +301,7 @@ PGBACKREST_REPO1_PATH=/backups`}
                                 variant="outline"
                                 onClick={() => {
                                   setRestoreBackupName(b.label);
-                                  setRestoreDialogOpen(true);
+                                  setRestoreBackupDialogOpen(true);
                                 }}
                               >
                                 Restore
@@ -312,13 +316,53 @@ PGBACKREST_REPO1_PATH=/backups`}
               </div>
             </div>
           )}
+
+          {isConfigured && status && status.settings.enabled && (
+            <div className="rounded-lg border border-hairline bg-surface-0 shadow-xs mt-6">
+              <div className="border-b border-hairline px-4 py-3">
+                <h2 className="text-sm font-medium text-foreground">
+                  Point-In-Time Recovery
+                </h2>
+                <p className="mt-1 text-xs text-ink-muted">
+                  Restore the database to any specific point in time using continuous WAL archives.
+                </p>
+              </div>
+              <div className="p-4 flex flex-col sm:flex-row items-end gap-4">
+                <div className="flex-1 w-full space-y-1">
+                  <label className="text-xs text-ink-muted">Target Date & Time</label>
+                  <input 
+                    type="datetime-local" 
+                    className="w-full rounded-md border border-hairline bg-surface-1 p-2 text-sm"
+                    value={targetTime}
+                    onChange={(e) => setTargetTime(e.target.value)}
+                  />
+                </div>
+                <Button 
+                  onClick={() => setRestoreTimeDialogOpen(true)}
+                  disabled={!targetTime}
+                >
+                  Restore to Time
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      <RestoreDialog
-        open={restoreDialogOpen}
-        onOpenChange={setRestoreDialogOpen}
+      <RestoreBackupDialog
+        open={restoreBackupDialogOpen}
+        onOpenChange={setRestoreBackupDialogOpen}
         backupName={restoreBackupName}
+        onRestored={() => {
+          queryClient.invalidateQueries({ queryKey: ["backup-list"] });
+          queryClient.invalidateQueries({ queryKey: ["backup-status"] });
+        }}
+      />
+
+      <RestoreTimeDialog
+        open={restoreTimeDialogOpen}
+        onOpenChange={setRestoreTimeDialogOpen}
+        targetTime={targetTime}
         onRestored={() => {
           queryClient.invalidateQueries({ queryKey: ["backup-list"] });
           queryClient.invalidateQueries({ queryKey: ["backup-status"] });
