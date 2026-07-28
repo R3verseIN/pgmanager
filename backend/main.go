@@ -62,7 +62,7 @@ func main() {
 	h := handler.NewWithDSN(pool, buildBaseDSN())
 	ah := handler.NewAuthHandler(pool)
 	sh := handler.NewSettingsHandler(pool)
-	wh := handler.NewWalgHandler(pool)
+	bh := handler.NewPgbackrestHandler(pool)
 	ssh := handler.NewSSLHandler("/var/lib/postgresql/data")
 
 	if err := h.InitUserSchema(ctx); err != nil {
@@ -81,25 +81,6 @@ func main() {
 	}()
 
 	go startAuditLogRetention(ctx, pool)
-
-	// WAL-G scheduled base backup goroutine
-	go func() {
-		// Wait 5 minutes after startup before first scheduled backup
-		select {
-		case <-time.After(5 * time.Minute):
-		case <-ctx.Done():
-			return
-		}
-
-		// Start ticker with interval from WALG_BACKUP_INTERVAL env var (re-reads on each cycle)
-		for {
-			intervalSec := wh.GetScheduledBackupInterval()
-			ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
-			<-ticker.C
-			ticker.Stop()
-			wh.RunScheduledBackup()
-		}
-	}()
 
 	mux := http.NewServeMux()
 
@@ -346,37 +327,29 @@ func main() {
 			return
 		}
 
-		// WAL-G S3 backup routes (admin only)
-		if path == "/api/walg/status" {
-			wh.GetStatus(w, r)
+		// pgBackRest backup routes (admin only)
+		if path == "/api/pgbackrest/status" {
+			bh.GetStatus(w, r)
 			return
 		}
-		if method == "GET" && path == "/api/walg/backups" {
-			wh.ListBackups(w, r)
+		if method == "GET" && path == "/api/pgbackrest/list" {
+			bh.ListBackups(w, r)
 			return
 		}
-		if method == "POST" && path == "/api/walg/backup" {
-			wh.TriggerBackup(w, r)
+		if method == "POST" && path == "/api/pgbackrest/trigger" {
+			bh.TriggerBackup(w, r)
 			return
 		}
-		if method == "POST" && path == "/api/walg/restore" {
-			wh.RestoreBackup(w, r)
+		if method == "POST" && path == "/api/pgbackrest/restore" {
+			bh.RestoreBackup(w, r)
 			return
 		}
-		if method == "DELETE" && strings.HasPrefix(path, "/api/walg/backup/") {
-			wh.DeleteBackup(w, r)
+		if method == "POST" && path == "/api/pgbackrest/settings" {
+			bh.UpdateSettings(w, r)
 			return
 		}
-		if method == "POST" && path == "/api/walg/verify" {
-			wh.VerifyIntegrity(w, r)
-			return
-		}
-		if method == "DELETE" && path == "/api/walg/garbage" {
-			wh.CleanGarbage(w, r)
-			return
-		}
-		if method == "POST" && path == "/api/walg/test-connection" {
-			wh.TestConnection(w, r)
+		if method == "POST" && path == "/api/pgbackrest/test-connection" {
+			bh.TestConnection(w, r)
 			return
 		}
 

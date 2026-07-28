@@ -1,4 +1,4 @@
-module github.com/pgmanager/walg-setup
+module github.com/pgmanager/pgbackrest-setup
 
 go 1.26.2
 

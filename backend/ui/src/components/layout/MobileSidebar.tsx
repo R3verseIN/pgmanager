@@ -120,11 +120,11 @@ export default function MobileSidebar({
                 Settings
               </Link>
               <Link
-                to="/walg"
+                to="/backup"
                 onClick={onClose}
                 className={cn(
                   "mt-1 flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  selectedKey === "walg"
+                  selectedKey === "backup"
                     ? "bg-surface-2 text-foreground"
                     : "text-ink-muted hover:bg-surface-1 hover:text-foreground"
                 )}

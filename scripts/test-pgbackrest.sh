@@ -202,7 +202,7 @@ else
     # Run integration tests with the build tag.
     # GO_TEST_INTEGRATION=1 activates TestMain which waits for the app.
     GO_TEST_INTEGRATION=1 go test -v -tags=integration -count=1 -timeout=10m \
-        -run TestWalgIntegration ./internal/handler/ 2>&1
+        -run TestPgbackrestIntegration ./internal/handler/ 2>&1
 fi
 
 TEST_EXIT=$?

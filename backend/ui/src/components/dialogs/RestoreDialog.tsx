@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { fetchDatabases, restoreWalgBackup } from "../../api/client";
+import { fetchDatabases } from "../../api/client";
+import { restoreS3Backup } from "../../api/pgbackrest";
 import { Button } from "../ui/button";
 import { Label } from "../ui/label";
 import {
@@ -45,7 +46,7 @@ export default function RestoreDialog({
     if (!targetDb || !backupName) return;
     setRestoring(true);
     try {
-      await restoreWalgBackup(backupName, targetDb);
+      await restoreS3Backup(targetDb, backupName);
       toast.success(`Restored ${backupName} to ${targetDb}`);
       onOpenChange(false);
       setTargetDb("");

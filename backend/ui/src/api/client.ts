@@ -73,18 +73,4 @@ export {
   downloadCACert,
 } from "./ssl";
 export type { SSLStatus, GenerateCertRequest } from "./ssl";
-export {
-  fetchWalgStatus,
-  fetchWalgBackups,
-  triggerWalgBackup,
-  restoreWalgBackup,
-  deleteWalgBackup,
-  verifyWalgIntegrity,
-  cleanWalgGarbage,
-  testWalgConnection,
-} from "./walg";
-export type {
-  WalgStatus,
-  WalgBackup,
-  WalgVerifyResult,
-} from "./walg";
+

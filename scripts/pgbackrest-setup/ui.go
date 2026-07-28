@@ -40,8 +40,8 @@ func runWizard() (*Config, error) {
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
-				Title("WAL-G S3 Backup Configuration").
-				Description("This wizard generates environment variables for WAL-G S3 backups.\n"+
+				Title("pgBackRest S3 Backup Configuration").
+				Description("This wizard generates environment variables for pgBackRest S3 backups.\n"+
 					"Select your provider and enter credentials."),
 			huh.NewSelect[int]().
 				Title("Pick your S3 provider").
@@ -150,20 +150,11 @@ func runWizard() (*Config, error) {
 	}
 
 	// Step 4: Advanced settings
-	var intervalStr, retentionStr string
 	var saveFile bool
 	form = huh.NewForm(
 		huh.NewGroup(
-			huh.NewInput().
-				Title("Backup interval (seconds)").
-				Placeholder("3600").
-				Value(&intervalStr),
-			huh.NewInput().
-				Title("Retention days").
-				Placeholder("7").
-				Value(&retentionStr),
 			huh.NewConfirm().
-				Title("Save to file (walg.env)?").
+				Title("Save to file (pgbackrest.env)?").
 				Affirmative("Yes").
 				Negative("No, print to stdout").
 				Value(&saveFile),
@@ -176,14 +167,7 @@ func runWizard() (*Config, error) {
 		return nil, err
 	}
 
-	interval := 3600
-	retention := 7
-	if intervalStr != "" {
-		fmt.Sscanf(intervalStr, "%d", &interval)
-	}
-	if retentionStr != "" {
-		fmt.Sscanf(retentionStr, "%d", &retention)
-	}
+
 
 	return &Config{
 		Provider:       provider.Name,
@@ -193,20 +177,18 @@ func runWizard() (*Config, error) {
 		Endpoint:       resolvedEndpoint,
 		Region:         region,
 		ForcePathStyle: provider.PathStyle,
-		Interval:       interval,
-		RetentionDays:  retention,
 		SaveToFile:     saveFile,
 	}, nil
 }
 
 func printBanner() {
-	fmt.Println(titleStyle.Render(" WAL-G S3 Backup Configuration Generator "))
+	fmt.Println(titleStyle.Render(" pgBackRest S3 Backup Configuration Generator "))
 	fmt.Println()
 }
 
 func printConfig(cfg *Config) {
 	fmt.Println()
-	fmt.Println(successStyle.Render("Generated WAL-G environment variables:"))
+	fmt.Println(successStyle.Render("Generated pgBackRest environment variables:"))
 	fmt.Println(strings.Repeat("-", 50))
 
 	envVars := generateEnvVars(cfg)
@@ -218,7 +200,7 @@ func printConfig(cfg *Config) {
 	fmt.Println()
 
 	if cfg.SaveToFile {
-		filename := "walg.env"
+		filename := "pgbackrest.env"
 		content := strings.Join(envVars, "\n") + "\n"
 		if err := os.WriteFile(filename, []byte(content), 0600); err != nil {
 			fmt.Println(errorStyle.Render(fmt.Sprintf("Failed to save file: %v", err)))

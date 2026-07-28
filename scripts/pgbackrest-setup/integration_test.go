@@ -167,18 +167,16 @@ func TestEnvVarsIntegrationR2(t *testing.T) {
 		Endpoint:       "https://abc123.r2.cloudflarestorage.com",
 		Region:         "auto",
 		ForcePathStyle: true,
-		Interval:       3600,
-		RetentionDays:  7,
 	}
 
 	lines := generateEnvVars(cfg)
 
-	assertEnvVar(t, lines, "WALG_S3_PREFIX", "s3://my-r2-bucket")
-	assertEnvVar(t, lines, "AWS_ACCESS_KEY_ID", "r2key")
-	assertEnvVar(t, lines, "AWS_SECRET_ACCESS_KEY", "r2secret")
-	assertEnvVar(t, lines, "AWS_ENDPOINT", "https://abc123.r2.cloudflarestorage.com")
-	assertEnvVar(t, lines, "AWS_REGION", "auto")
-	assertEnvVar(t, lines, "AWS_S3_FORCE_PATH_STYLE", "true")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_BUCKET", "my-r2-bucket")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_KEY", "r2key")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_KEY_SECRET", "r2secret")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_ENDPOINT", "https://abc123.r2.cloudflarestorage.com")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_REGION", "auto")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_URI_STYLE", "path")
 }
 
 // TestEnvVarsIntegrationMinIO tests the full env var generation for MinIO.
@@ -191,17 +189,13 @@ func TestEnvVarsIntegrationMinIO(t *testing.T) {
 		Endpoint:       "http://minio:9000",
 		Region:         "us-east-1",
 		ForcePathStyle: true,
-		Interval:       1800,
-		RetentionDays:  14,
 	}
 
 	lines := generateEnvVars(cfg)
 
-	assertEnvVar(t, lines, "WALG_S3_PREFIX", "s3://minio-test")
-	assertEnvVar(t, lines, "AWS_ENDPOINT", "http://minio:9000")
-	assertEnvVar(t, lines, "AWS_S3_FORCE_PATH_STYLE", "true")
-	assertEnvVar(t, lines, "WALG_BACKUP_INTERVAL", "1800")
-	assertEnvVar(t, lines, "WALG_BACKUP_RETENTION_DAYS", "14")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_BUCKET", "minio-test")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_ENDPOINT", "http://minio:9000")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_URI_STYLE", "path")
 }
 
 // TestEnvVarsIntegrationDO tests the full env var generation for DigitalOcean Spaces.
@@ -214,21 +208,13 @@ func TestEnvVarsIntegrationDO(t *testing.T) {
 		Endpoint:       "https://sfo3.digitaloceanspaces.com",
 		Region:         "sfo3",
 		ForcePathStyle: false,
-		Interval:       3600,
-		RetentionDays:  7,
 	}
 
 	lines := generateEnvVars(cfg)
 
-	assertEnvVar(t, lines, "AWS_ENDPOINT", "https://sfo3.digitaloceanspaces.com")
-	assertEnvVar(t, lines, "AWS_REGION", "sfo3")
-
-	// Path style should NOT be present
-	for _, line := range lines {
-		if strings.HasPrefix(line, "AWS_S3_FORCE_PATH_STYLE") {
-			t.Errorf("DO should not have path style, but found: %s", line)
-		}
-	}
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_ENDPOINT", "https://sfo3.digitaloceanspaces.com")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_REGION", "sfo3")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_URI_STYLE", "host")
 }
 
 // TestEnvVarsIntegrationWasabi tests the full env var generation for Wasabi.
@@ -241,14 +227,12 @@ func TestEnvVarsIntegrationWasabi(t *testing.T) {
 		Endpoint:       "s3.wasabisys.com",
 		Region:         "eu-central-1",
 		ForcePathStyle: false,
-		Interval:       3600,
-		RetentionDays:  7,
 	}
 
 	lines := generateEnvVars(cfg)
 
-	assertEnvVar(t, lines, "AWS_ENDPOINT", "s3.wasabisys.com")
-	assertEnvVar(t, lines, "AWS_REGION", "eu-central-1")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_ENDPOINT", "s3.wasabisys.com")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_REGION", "eu-central-1")
 }
 
 // TestEnvVarsIntegrationB2 tests the full env var generation for Backblaze B2.
@@ -261,14 +245,12 @@ func TestEnvVarsIntegrationB2(t *testing.T) {
 		Endpoint:       "s3.us-west-001.backblazeb2.com",
 		Region:         "us-west-001",
 		ForcePathStyle: false,
-		Interval:       3600,
-		RetentionDays:  7,
 	}
 
 	lines := generateEnvVars(cfg)
 
-	assertEnvVar(t, lines, "AWS_ENDPOINT", "s3.us-west-001.backblazeb2.com")
-	assertEnvVar(t, lines, "AWS_REGION", "us-west-001")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_ENDPOINT", "s3.us-west-001.backblazeb2.com")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_REGION", "us-west-001")
 }
 
 // TestEnvVarsIntegrationCustom tests the full env var generation for Custom provider.
@@ -281,48 +263,13 @@ func TestEnvVarsIntegrationCustom(t *testing.T) {
 		Endpoint:       "http://custom-storage:9000",
 		Region:         "custom-region",
 		ForcePathStyle: true,
-		Interval:       900,
-		RetentionDays:  30,
 	}
 
 	lines := generateEnvVars(cfg)
 
-	assertEnvVar(t, lines, "AWS_ENDPOINT", "http://custom-storage:9000")
-	assertEnvVar(t, lines, "AWS_REGION", "custom-region")
-	assertEnvVar(t, lines, "AWS_S3_FORCE_PATH_STYLE", "true")
-	assertEnvVar(t, lines, "WALG_BACKUP_INTERVAL", "900")
-	assertEnvVar(t, lines, "WALG_BACKUP_RETENTION_DAYS", "30")
-}
-
-// TestEnvVarsIntegrationDefaults tests that default values are omitted.
-func TestEnvVarsIntegrationDefaults(t *testing.T) {
-	cfg := &Config{
-		Provider:       "AWS S3",
-		Bucket:         "test",
-		AccessKeyID:    "key",
-		SecretKey:      "secret",
-		Endpoint:       "",
-		Region:         "us-east-1",
-		ForcePathStyle: false,
-		Interval:       3600,
-		RetentionDays:  7,
-	}
-
-	lines := generateEnvVars(cfg)
-
-	// Should only have 4 lines (prefix, access key, secret key, region)
-	if len(lines) != 4 {
-		t.Errorf("expected 4 lines for defaults, got %d: %v", len(lines), lines)
-	}
-
-	// No endpoint, no path style, no interval, no retention
-	for _, line := range lines {
-		key := strings.SplitN(line, "=", 2)[0]
-		switch key {
-		case "AWS_ENDPOINT", "AWS_S3_FORCE_PATH_STYLE", "WALG_BACKUP_INTERVAL", "WALG_BACKUP_RETENTION_DAYS":
-			t.Errorf("default value should be omitted, but found: %s", line)
-		}
-	}
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_ENDPOINT", "http://custom-storage:9000")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_REGION", "custom-region")
+	assertEnvVar(t, lines, "PGBACKREST_REPO1_S3_URI_STYLE", "path")
 }
 
 // resolveConfig is a test helper that simulates the provider resolution logic
@@ -366,7 +313,5 @@ func resolveConfig(t *testing.T, providerName, accountID, region, endpoint strin
 		Endpoint:       resolvedEndpoint,
 		Region:         region,
 		ForcePathStyle: provider.PathStyle,
-		Interval:       3600,
-		RetentionDays:  7,
 	}
 }

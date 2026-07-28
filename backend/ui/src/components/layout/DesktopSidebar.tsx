@@ -97,10 +97,10 @@ export default function DesktopSidebar({
               className="mt-1"
             />
             <NavItem
-              to="/walg"
+              to="/backup"
               icon={Cloud}
               label="S3 Backups"
-              isActive={selectedKey === "walg"}
+              isActive={selectedKey === "backup"}
               isCollapsed={isCollapsed}
               className="mt-1"
             />

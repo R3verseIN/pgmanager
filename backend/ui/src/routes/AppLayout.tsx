@@ -12,7 +12,7 @@ import Logs from "./Logs";
 import Profile from "./Profile";
 import Settings from "./Settings";
 import Backups from "./Backups";
-import WalgBackups from "./WalgBackups";
+import PgbackrestBackups from "./PgbackrestBackups";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -25,8 +25,8 @@ export default function AppLayout() {
           ? "settings"
           : location.pathname === "/backups"
             ? "backups"
-            : location.pathname === "/walg"
-              ? "walg"
+            : location.pathname === "/backup"
+              ? "backup"
               : "databases";
   const { user } = useAuth();
 
@@ -86,8 +86,8 @@ export default function AppLayout() {
             element={user?.role === "admin" || user?.role === "dev" ? <Backups /> : <Navigate to="/" />}
           />
           <Route
-            path="/walg"
-            element={user?.role === "admin" ? <WalgBackups /> : <Navigate to="/" />}
+            path="/backup"
+            element={user?.role === "admin" ? <PgbackrestBackups /> : <Navigate to="/" />}
           />
         </Routes>
       </main>

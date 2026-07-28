@@ -37,8 +37,7 @@
 - **User Management** — Create PostgreSQL users with granular access levels (read, write, ddl, full) and IP allowlisting
 - **Auth Users** — Manage web app login accounts with admin/dev/viewer roles
 - **Backup & Restore** — Stream backups via `pg_dump`, restore with `pg_restore`, inspect dump contents
-- **S3 Backups (WAL-G)** — Continuous WAL archiving to S3-compatible storage, automated base backups, point-in-time recovery, automatic garbage cleanup ([setup guide](docs/walg-s3-setup.md))
-- **WAL-G Setup Tool** — Standalone CLI wizard that generates S3 backup configuration for 11 providers with auto-filled defaults
+- **S3 Backups (pgBackRest)** — Continuous WAL archiving to S3-compatible storage, automated base (full/incremental) backups, single-database restores, and automatic garbage cleanup
 - **PgBouncer Control** — Toggle database access, configure pool mode/size, live reload
 - **Audit Logging** — Every action logged with user, IP, timestamp, and detail
 - **Admin CLI** — Recovery tool for user management when the web UI is inaccessible
@@ -101,21 +100,21 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 | `POSTGRES_PASSWORD` | PostgreSQL superuser password | Yes |
 | `PGBOUNCER_AUTH_PASSWORD` | PgBouncer auth proxy password | Yes |
 | `PGMANAGER_HOST` | Hostname/IP for user connection strings (e.g., `pg.example.com:5432`). Auto-detected from the web UI's Host header if not set. | No |
-| `WALG_S3_PREFIX` | S3 bucket URI for WAL-G backups (e.g., `s3://my-bucket/pgmanager`). Leave empty to disable. | No |
-| `AWS_ACCESS_KEY_ID` | S3 access key ID (required for WAL-G, env var only) | If using WAL-G |
-| `AWS_SECRET_ACCESS_KEY` | S3 secret access key (required for WAL-G, env var only) | If using WAL-G |
-| `AWS_ENDPOINT` | S3 endpoint URL — required for MinIO/Cloudflare R2, leave empty for AWS S3 | If using non-AWS |
-| `AWS_REGION` | S3 region (default: `us-east-1`). Set to `auto` for Cloudflare R2. | No |
-| `AWS_S3_FORCE_PATH_STYLE` | Set to `true` for MinIO, Cloudflare R2, and other S3-compatible storage | No |
-| `WALG_BACKUP_INTERVAL` | Base backup interval in seconds (default: `3600`) | No |
-| `WALG_BACKUP_RETENTION_DAYS` | Days to keep backups (default: `7`) | No |
+| `PGBACKREST_REPO1_TYPE` | Type of repo (must be `s3` for S3 backups) | No |
+| `PGBACKREST_REPO1_S3_BUCKET` | S3 bucket name | If using S3 |
+| `PGBACKREST_REPO1_S3_ENDPOINT` | S3 endpoint URL (e.g., s3.us-east-1.amazonaws.com) | If using S3 |
+| `PGBACKREST_REPO1_S3_REGION` | S3 region (default: `us-east-1`) | If using S3 |
+| `PGBACKREST_REPO1_S3_URI_STYLE` | Set to `path` for MinIO/custom, `host` for AWS | If using S3 |
+| `PGBACKREST_REPO1_S3_KEY` | S3 access key ID | If using S3 |
+| `PGBACKREST_REPO1_S3_KEY_SECRET` | S3 secret access key | If using S3 |
+| `PGBACKREST_REPO1_PATH` | Path inside bucket (e.g., `/backups`) | No |
 
 **Password rules:**
 - 8-72 characters
 - Only `a-z`, `A-Z`, `0-9`, `_`, `-`
 - No special characters (`!@#$%^&*()` etc.)
 
-**S3 Backups:** See [docs/walg-s3-setup.md](docs/walg-s3-setup.md) for provider-specific setup instructions (AWS S3, Cloudflare R2, MinIO).
+**S3 Backups:** Configure the `PGBACKREST_REPO1_*` environment variables in your `.env` file to enable automated S3 backups. All other pgBackRest settings (retention, backup schedule, timeouts) are managed via the Web UI.
 
 ### Exposed Ports
 
@@ -187,34 +186,7 @@ See [docs/admin-cli.md](docs/admin-cli.md) for full documentation and recovery s
 - **Protected databases** — `template0`, `template1`, `postgres`, `pgmanager` cannot be created or deleted through the UI
 - **Audit trail** — All state-changing actions logged with user, IP, and timestamp
 
-## WAL-G Setup Tool
 
-A standalone CLI tool that generates S3 backup configuration for WAL-G. Supports 11 providers with auto-filled defaults.
-
-```bash
-cd scripts/walg-setup
-go build -o walg-setup .
-./walg-setup
-```
-
-The wizard walks through:
-1. Provider selection (AWS S3, Cloudflare R2, MinIO, DigitalOcean, Wasabi, Backblaze B2, and more)
-2. Bucket name and credentials
-3. Provider-specific fields (auto-filled based on selection)
-4. Optional: backup interval, retention, save to file
-
-Outputs environment variables to paste into `docker-compose.yml` or saves to `walg.env`.
-
-**Providers included:**
-AWS S3, Cloudflare R2, DigitalOcean Spaces, Wasabi, Backblaze B2, Google Cloud Storage, Alibaba Cloud OSS, Scaleway, MinIO, Ceph, Custom S3-Compatible
-
-**Tests:**
-```bash
-cd scripts/walg-setup
-go test -v ./...
-```
-
-See [docs/walg-s3-setup.md](docs/walg-s3-setup.md) for detailed provider setup instructions.
 
 ## Development
 
@@ -244,9 +216,6 @@ go build -o pgmanager .
 cd backend
 go test ./...
 
-# WAL-G setup tool tests
-cd scripts/walg-setup
-go test -v ./...
 ```
 
 ### Full Docker build
