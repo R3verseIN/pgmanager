@@ -95,7 +95,7 @@ class TestAccessLevels:
     def test_all_levels(self, api, admin_cookies, test_db, level):
         resp = api.post(
             "/api/users",
-            json={"username": f"{level}user", "password": "testpass1234", "access": level, "databases": [test_db]},
+            json={"username": f"lvl{level}user", "password": "testpass1234", "access": level, "databases": [test_db]},
             cookies=admin_cookies,
         )
         assert resp.status_code == 201

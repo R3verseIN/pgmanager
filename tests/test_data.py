@@ -83,3 +83,83 @@ class TestDeleteRow:
             cookies=admin_cookies,
         )
         assert resp.status_code == 200
+
+
+class TestDataBoundary:
+    def test_limit_defaults_to_100(self, api, admin_cookies, test_db):
+        setup_data(test_db)
+        resp = api.get(f"/api/databases/{test_db}/data/items?limit=0", cookies=admin_cookies)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["rows"]) <= 100
+
+    def test_negative_offset_defaults_to_0(self, api, admin_cookies, test_db):
+        setup_data(test_db)
+        resp = api.get(f"/api/databases/{test_db}/data/items?offset=-5", cookies=admin_cookies)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 5
+
+    def test_insert_empty_values(self, api, admin_cookies, test_db):
+        setup_data(test_db)
+        resp = api.post(
+            f"/api/databases/{test_db}/data/items",
+            json={"values": {}},
+            cookies=admin_cookies,
+        )
+        assert resp.status_code == 400
+
+    def test_update_empty_values(self, api, admin_cookies, test_db):
+        setup_data(test_db)
+        resp = api.put(
+            f"/api/databases/{test_db}/data/items",
+            json={
+                "values": {},
+                "where": [{"column": "name", "operator": "=", "value": "item0"}],
+            },
+            cookies=admin_cookies,
+        )
+        assert resp.status_code == 400
+
+    def test_update_missing_where(self, api, admin_cookies, test_db):
+        setup_data(test_db)
+        resp = api.put(
+            f"/api/databases/{test_db}/data/items",
+            json={"values": {"value": 999}},
+            cookies=admin_cookies,
+        )
+        assert resp.status_code == 400
+
+    def test_delete_missing_where(self, api, admin_cookies, test_db):
+        setup_data(test_db)
+        resp = api.delete(
+            f"/api/databases/{test_db}/data/items",
+            json={},
+            cookies=admin_cookies,
+        )
+        assert resp.status_code == 400
+
+    def test_update_rows_affected(self, api, admin_cookies, test_db):
+        setup_data(test_db)
+        resp = api.put(
+            f"/api/databases/{test_db}/data/items",
+            json={
+                "values": {"value": 888},
+                "where": [{"column": "active", "operator": "=", "value": True}],
+            },
+            cookies=admin_cookies,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "rowsAffected" in data
+
+    def test_delete_rows_affected(self, api, admin_cookies, test_db):
+        setup_data(test_db)
+        resp = api.delete(
+            f"/api/databases/{test_db}/data/items",
+            json={"where": [{"column": "active", "operator": "=", "value": False}]},
+            cookies=admin_cookies,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "rowsAffected" in data

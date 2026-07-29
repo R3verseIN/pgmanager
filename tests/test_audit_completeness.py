@@ -101,3 +101,92 @@ class TestAuditLogFiltering:
         for entry in data["entries"]:
             assert entry["action"] == "create_auth_user"
             assert entry["username"] == "admin"
+
+
+class TestAdditionalAuditActions:
+    def test_update_user_audit_entry(self, api, admin_cookies, test_db):
+        api.post(
+            "/api/users",
+            json={"username": "auditupd", "password": "auditupd1234", "access": "read", "databases": [test_db]},
+            cookies=admin_cookies,
+        )
+        api.put(
+            "/api/users/auditupd",
+            json={"access": "write"},
+            cookies=admin_cookies,
+        )
+        resp = api.get("/api/logs?action=update_user", cookies=admin_cookies)
+        data = resp.json()
+        assert data["total"] >= 1
+
+    def test_delete_user_audit_entry(self, api, admin_cookies, test_db):
+        api.post(
+            "/api/users",
+            json={"username": "auditdel", "password": "auditdel1234", "access": "read", "databases": [test_db]},
+            cookies=admin_cookies,
+        )
+        api.delete("/api/users/auditdel", cookies=admin_cookies)
+        resp = api.get("/api/logs?action=delete_user", cookies=admin_cookies)
+        data = resp.json()
+        assert data["total"] >= 1
+
+    def test_remove_user_database_audit_entry(self, api, admin_cookies, test_db):
+        api.post("/api/databases", json={"name": "auditrmd"}, cookies=admin_cookies)
+        api.post(
+            "/api/users",
+            json={"username": "auditrmdusr", "password": "auditrmdpass1234", "access": "read", "databases": [test_db, "auditrmd"]},
+            cookies=admin_cookies,
+        )
+        api.delete("/api/users/auditrmdusr/databases/auditrmd", cookies=admin_cookies)
+        resp = api.get("/api/logs?action=remove_user_database", cookies=admin_cookies)
+        data = resp.json()
+        assert data["total"] >= 1
+
+    def test_list_tables_audit_entry(self, api, admin_cookies, test_db):
+        dsn = f"postgresql://pgmanager:pgmanager@db:5432/{test_db}?sslmode=disable"
+        import psycopg2
+        conn = psycopg2.connect(dsn)
+        conn.autocommit = True
+        conn.cursor().execute("CREATE TABLE IF NOT EXISTS audit_tbl (id SERIAL PRIMARY KEY)")
+        conn.close()
+
+        api.get(f"/api/databases/{test_db}/tables", cookies=admin_cookies)
+        resp = api.get("/api/logs?action=list_tables", cookies=admin_cookies)
+        data = resp.json()
+        assert data["total"] >= 1
+
+    def test_view_data_audit_entry(self, api, admin_cookies, test_db):
+        dsn = f"postgresql://pgmanager:pgmanager@db:5432/{test_db}?sslmode=disable"
+        import psycopg2
+        conn = psycopg2.connect(dsn)
+        conn.autocommit = True
+        conn.cursor().execute("CREATE TABLE IF NOT EXISTS audit_vd (id SERIAL PRIMARY KEY)")
+        conn.close()
+
+        api.get(f"/api/databases/{test_db}/data/audit_vd", cookies=admin_cookies)
+        resp = api.get("/api/logs?action=view_data", cookies=admin_cookies)
+        data = resp.json()
+        assert data["total"] >= 1
+
+    def test_insert_row_audit_entry(self, api, admin_cookies, test_db):
+        dsn = f"postgresql://pgmanager:pgmanager@db:5432/{test_db}?sslmode=disable"
+        import psycopg2
+        conn = psycopg2.connect(dsn)
+        conn.autocommit = True
+        conn.cursor().execute("CREATE TABLE IF NOT EXISTS audit_ir (id SERIAL PRIMARY KEY, name TEXT)")
+        conn.close()
+
+        api.post(
+            f"/api/databases/{test_db}/data/audit_ir",
+            json={"values": {"name": "auditrow"}},
+            cookies=admin_cookies,
+        )
+        resp = api.get("/api/logs?action=insert_row", cookies=admin_cookies)
+        data = resp.json()
+        assert data["total"] >= 1
+
+    def test_list_pgbouncer_databases_audit_entry(self, api, admin_cookies):
+        api.get("/api/pgbouncer/databases", cookies=admin_cookies)
+        resp = api.get("/api/logs?action=list_pgbouncer_databases", cookies=admin_cookies)
+        data = resp.json()
+        assert data["total"] >= 1

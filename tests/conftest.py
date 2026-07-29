@@ -19,17 +19,24 @@ class APIClient:
             return path
         return f"{self.base_url}{path}"
 
+    def _set_json_content_type(self, kwargs):
+        if "files" not in kwargs:
+            headers = kwargs.get("headers", {})
+            headers.setdefault("Content-Type", "application/json")
+            kwargs["headers"] = headers
+        return kwargs
+
     def get(self, url, **kwargs):
         return self.session.get(self._url(url), **kwargs)
 
     def post(self, url, **kwargs):
-        return self.session.post(self._url(url), **kwargs)
+        return self.session.post(self._url(url), **self._set_json_content_type(kwargs))
 
     def put(self, url, **kwargs):
-        return self.session.put(self._url(url), **kwargs)
+        return self.session.put(self._url(url), **self._set_json_content_type(kwargs))
 
     def delete(self, url, **kwargs):
-        return self.session.delete(self._url(url), **kwargs)
+        return self.session.delete(self._url(url), **self._set_json_content_type(kwargs))
 
     @property
     def cookies(self):
@@ -44,7 +51,6 @@ def base_url():
 @pytest.fixture(scope="session")
 def api(base_url):
     session = requests.Session()
-    session.headers.update({"Content-Type": "application/json"})
     return APIClient(session, base_url)
 
 
@@ -83,6 +89,35 @@ def clean_slate(pg_cursor):
         VALUES ('pgmanager', false), ('postgres', false), ('template0', false), ('template1', false)
         ON CONFLICT (database_name) DO NOTHING
     """)
+    managed_roles = [
+        "readuser", "readuser2", "readuser3", "writeuser", "writeuser2",
+        "ddluser", "fulluser", "lvlreaduser", "lvlwriteuser", "lvlddluser", "lvlfulluser",
+        "addbuser", "rmdruser", "uplevel", "updb", "genpw", "delrole", "delmeta",
+        "testuser", "genuser", "dupuser", "deluser", "upuser",
+        "audituser", "ghost", "ghostdb", "protdb", "dupdb",
+        "combo",
+        "writedel", "wrseq", "ddlins", "ddlseq", "readdrop",
+        "defread", "defwrite",
+        "viewdb1", "viewdb2", "viewusr1", "viewset1", "viewpgb1", "viewauth1",
+        "devdb1", "devdb2", "devusr1", "devset1", "devpb1", "devrd1", "devsql1", "devnoa1",
+        "shortpw", "longpw", "protdbusr", "nodbusr", "badaccess", "nodbs",
+    ]
+    for role in managed_roles:
+        try:
+            pg_cursor.execute(f"DROP OWNED BY {role} CASCADE")
+        except Exception:
+            pass
+        try:
+            pg_cursor.execute(f"DROP ROLE IF EXISTS {role}")
+        except Exception:
+            pass
+    for db_name in ["newdb", "dupdb", "deldb", "adddb2", "rmdrb", "filterdb", "datedb",
+                     "toonlydb", "rangedb", "delauditdb", "auditdb", "newdbaccess",
+                     "auditudb", "auditrmd", "otherdb", "shouldfail"]:
+        try:
+            pg_cursor.execute(f"DROP DATABASE IF EXISTS {db_name} WITH (FORCE)")
+        except Exception:
+            pass
 
 
 @pytest.fixture
@@ -92,7 +127,6 @@ def admin_session(api, pg_cursor):
         ("admin",),
     )
     session = requests.Session()
-    session.headers.update({"Content-Type": "application/json"})
     yield APIClient(session, BASE_URL)
 
 
